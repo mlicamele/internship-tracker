@@ -37,6 +37,12 @@ export default async function AppLayout({
             >
               Pipeline
             </Link>
+            <Link
+              href="/settings"
+              className="rounded-md px-3 py-1.5 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            >
+              Settings
+            </Link>
             <form action="/auth/sign-out" method="post" className="ml-1">
               <Button type="submit" variant="ghost" size="sm">
                 Sign out

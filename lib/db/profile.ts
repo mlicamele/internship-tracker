@@ -1,33 +1,76 @@
-// Profile data-access stubs. Implementations land during Phase 1 Track 1-C
-// (onboarding wizard) — these signatures exist so 1-B and 1-C can compile
-// against them in parallel.
+// Profile data-access. Each function takes a Supabase client so callers can
+// use either the cookie-bound server client (server actions / RSC) or the
+// service-role client (Phase 5 scraper fan-out).
 
-import type { Profile } from "./types";
-
-const NOT_IMPLEMENTED = "Not implemented yet — see Phase 1 Track 1-C in the build plan.";
-
-export async function getProfile(_userId: string): Promise<Profile | null> {
-  throw new Error(NOT_IMPLEMENTED);
-}
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Profile, RelocationTolerance } from "./types";
 
 export interface ProfileUpdate {
   school?: string;
   grad_year?: number;
   home_address?: string;
-  home_lat?: number;
-  home_lng?: number;
+  home_lat?: number | null;
+  home_lng?: number | null;
   local_radius_miles?: number;
-  relocation_tolerance?: Profile["relocation_tolerance"];
+  relocation_tolerance?: RelocationTolerance;
   interest_tags?: string[];
 }
 
-export async function updateProfile(
-  _userId: string,
-  _patch: ProfileUpdate
-): Promise<Profile> {
-  throw new Error(NOT_IMPLEMENTED);
+export async function getProfile(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<Profile | null> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  if (error) throw error;
+  return data as Profile | null;
 }
 
-export async function completeOnboarding(_userId: string): Promise<Profile> {
-  throw new Error(NOT_IMPLEMENTED);
+export async function updateProfile(
+  supabase: SupabaseClient,
+  userId: string,
+  patch: ProfileUpdate
+): Promise<Profile> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .update(patch)
+    .eq("user_id", userId)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as Profile;
+}
+
+export async function completeOnboarding(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<Profile> {
+  const { data, error } = await supabase
+    .from("profiles")
+    .update({ onboarding_completed_at: new Date().toISOString() })
+    .eq("user_id", userId)
+    .select("*")
+    .single();
+
+  if (error) throw error;
+  return data as Profile;
+}
+
+/**
+ * Which onboarding step does the user need next? Used by /onboard to
+ * server-render the correct step, and by the middleware to gate-keep.
+ */
+export type OnboardingStep = "basics" | "location" | "interests" | "finish" | "done";
+
+export function nextOnboardingStep(profile: Profile): OnboardingStep {
+  if (profile.onboarding_completed_at) return "done";
+  if (!profile.school || !profile.grad_year) return "basics";
+  if (!profile.home_address) return "location";
+  if (!profile.interest_tags || profile.interest_tags.length === 0) return "interests";
+  return "finish";
 }
