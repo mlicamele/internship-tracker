@@ -36,11 +36,23 @@ export async function updateSession(request: NextRequest) {
   const isPublic = PUBLIC_PATHS.some((p) => path.startsWith(p));
   const isOnboard = path.startsWith(ONBOARD_PATH);
 
+  // Helper: build a redirect that preserves any refreshed-session cookies
+  // that Supabase wrote onto supabaseResponse during getUser() above.
+  // Without this, every redirect-from-middleware silently drops the
+  // refreshed access token and the next request 401s → reload-loop.
+  const redirectTo = (pathname: string): NextResponse => {
+    const url = request.nextUrl.clone();
+    url.pathname = pathname;
+    const response = NextResponse.redirect(url);
+    supabaseResponse.cookies.getAll().forEach((cookie) => {
+      response.cookies.set(cookie);
+    });
+    return response;
+  };
+
   // Unauthenticated → /login (except public paths)
   if (!user && !isPublic) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/login";
-    return NextResponse.redirect(url);
+    return redirectTo("/login");
   }
 
   // Onboarding gate — single profile read decides both redirect cases
@@ -55,16 +67,12 @@ export async function updateSession(request: NextRequest) {
 
     // Mid-onboarding user trying to use the app → bounce to /onboard
     if (!onboardingDone && !isOnboard) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/onboard";
-      return NextResponse.redirect(url);
+      return redirectTo("/onboard");
     }
 
     // Already-onboarded user hitting /onboard → bounce to /inbox
     if (onboardingDone && isOnboard) {
-      const url = request.nextUrl.clone();
-      url.pathname = "/inbox";
-      return NextResponse.redirect(url);
+      return redirectTo("/inbox");
     }
   }
 
