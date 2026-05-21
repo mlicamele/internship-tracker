@@ -1,10 +1,10 @@
-// Gemini 2.0 Flash-based job extractor. Free tier (15 RPM / 1500 RPD on
-// AI Studio) is more than enough for personal use. Uses Gemini's
-// responseSchema feature to force strict JSON output — no parse failures.
+// Groq-backed job extractor (Llama 3.3 70B Versatile). Free tier on Groq
+// is generous (30 RPM, 14400/day) and the model is strong at structured
+// JSON extraction. No Google Cloud billing rabbit hole.
 //
 // Never throws — returns safe defaults on any error.
 
-import { GoogleGenAI, Type } from "@google/genai";
+import Groq from "groq-sdk";
 import type {
   ClassYearTag,
   TargetSeason,
@@ -60,23 +60,43 @@ const WORK_MODEL_VALUES = new Set(["remote", "hybrid", "onsite", "unspecified"])
 
 const SYSTEM_PROMPT = `You extract structured fields from a job/internship posting for an undergrad applicant.
 
-You receive a mix of evidence: rendered HTML excerpts, JSON-LD structured data, per-board parser hints, optionally a user-pasted JD body. Synthesize all of it into the cleanest possible JSON output matching the response schema.
+You receive a mix of evidence: rendered HTML excerpts, JSON-LD structured data, per-board parser hints, optionally a user-pasted JD body. Synthesize all of it.
+
+OUTPUT STRICT JSON ONLY — no markdown, no prose, no code fence. Match this exact schema:
+
+{
+  "company": string | null,
+  "title": string | null,
+  "location_text": string | null,
+  "jd_body": string,
+  "deadline_at": string | null,           // ISO 8601 like "2026-06-15T00:00:00Z"
+  "posted_at": string | null,             // ISO 8601
+  "work_model": "remote" | "hybrid" | "onsite" | "unspecified",
+  "target_year": integer | null,           // e.g. 2027
+  "target_season": "summer" | "fall" | "winter" | "spring",
+  "class_year_tag": "freshman_ok" | "sophomore_ok" | "junior_plus" | "unspecified",
+  "class_year_confidence": number,         // 0.0 - 1.0
+  "compensation_text": string | null,      // verbatim like "$50/hr + housing"
+  "compensation_hourly_cents": integer | null,
+  "overall_confidence": number,            // 0.0 - 1.0
+  "notes": string                          // 1 sentence internal-only summary
+}
 
 Rules:
-- company: the hiring organization. Prefer JSON-LD hiringOrganization.name. Capitalize properly ("anthropic" → "Anthropic"). NOT the job board name.
-- title: role title only, no company name. e.g. "Software Engineer Intern" not "Anthropic - SWE Intern".
-- location_text: brief human-readable location. "Remote", "San Francisco, CA", "Remote · NYC" for hybrid.
-- jd_body: clean plain text of the JD. Strip HTML, preserve paragraphs + bullets. Empty string if unknown.
-- class_year_tag: who can apply (NOT what the company prefers). "rising junior" or "must be junior" → junior_plus. "open to all class years" → freshman_ok. If unstated → unspecified.
-- target_year: year the internship runs. "Summer 2027 SWE Intern" → 2027. null if unstated.
-- target_season: "summer" if unstated (most common). Only fall/winter/spring if explicitly stated.
-- work_model: 'remote' only if clearly stated remote (not "no remote"). 'hybrid' for mixed. 'onsite'/'in-office' otherwise. 'unspecified' if not mentioned.
-- deadline_at / posted_at: ISO 8601. If only a date, use YYYY-MM-DDT00:00:00Z. Honest "unknown" → null.
-- compensation_text: verbatim if present. compensation_hourly_cents: hourly cents equivalent. "$50/hr" → 5000. "$8000/mo" ≈ 4615 (×100/173.33). "$80k/yr" ≈ 3846 (×100/2080).
-- confidence: 0-1. Be honest. Unspecified/null fields should have low per-field reflection in overall_confidence.
-- notes: 1 sentence, internal only.
+- company: hiring organization name. Prefer JSON-LD hiringOrganization.name. Capitalize properly ("anthropic" → "Anthropic"). NOT the job board name.
+- title: role title only, no company prefix. "Software Engineer Intern" not "Anthropic - SWE Intern".
+- location_text: brief human-readable. "Remote", "San Francisco, CA", "Remote · NYC" for hybrid.
+- jd_body: clean plain text. Strip HTML. Preserve paragraphs + bullets. Empty string if unknown.
+- class_year_tag: who CAN apply (not company preference). "rising junior" or "must be junior" → junior_plus. "open to all class years" → freshman_ok. Unstated → unspecified.
+- target_year: year the internship runs. "Summer 2027 SWE Intern" → 2027. Null if unstated.
+- target_season: "summer" default (most common). Only other if explicit.
+- work_model: "remote" only if explicitly stated remote (NOT "no remote"). "hybrid" for mixed. "onsite" / "in-office" otherwise. "unspecified" if not mentioned.
+- deadline_at / posted_at: ISO 8601 string. Only date → "YYYY-MM-DDT00:00:00Z". Unknown → null.
+- compensation_text: verbatim if present. compensation_hourly_cents: hourly cents equivalent. "$50/hr" → 5000. "$8000/mo" ≈ 4615 (8000*100/173.33). "$80k/yr" ≈ 3846 (80000*100/2080).
+- confidence: be honest. Null/unspecified fields should lower overall_confidence.
+- notes: 1 short sentence for debugging.
 
-DO NOT fabricate. Prefer null over a wrong guess.`;
+DO NOT fabricate. Prefer null over wrong guesses.`;
 
 export interface ExtractJobInput {
   url: string;
@@ -93,81 +113,18 @@ export interface ExtractJobInput {
 
 const MAX_HTML_CHARS = 12000;
 const MAX_BODY_CHARS = 8000;
+const MODEL = "llama-3.3-70b-versatile";
 
-const RESPONSE_SCHEMA = {
-  type: Type.OBJECT,
-  properties: {
-    company: { type: Type.STRING, nullable: true },
-    title: { type: Type.STRING, nullable: true },
-    location_text: { type: Type.STRING, nullable: true },
-    jd_body: { type: Type.STRING },
-    deadline_at: { type: Type.STRING, nullable: true },
-    posted_at: { type: Type.STRING, nullable: true },
-    work_model: {
-      type: Type.STRING,
-      enum: ["remote", "hybrid", "onsite", "unspecified"],
-    },
-    target_year: { type: Type.INTEGER, nullable: true },
-    target_season: {
-      type: Type.STRING,
-      enum: ["summer", "fall", "winter", "spring"],
-    },
-    class_year_tag: {
-      type: Type.STRING,
-      enum: ["freshman_ok", "sophomore_ok", "junior_plus", "unspecified"],
-    },
-    class_year_confidence: { type: Type.NUMBER },
-    compensation_text: { type: Type.STRING, nullable: true },
-    compensation_hourly_cents: { type: Type.INTEGER, nullable: true },
-    overall_confidence: { type: Type.NUMBER },
-    notes: { type: Type.STRING },
-  },
-  required: [
-    "company",
-    "title",
-    "location_text",
-    "jd_body",
-    "deadline_at",
-    "posted_at",
-    "work_model",
-    "target_year",
-    "target_season",
-    "class_year_tag",
-    "class_year_confidence",
-    "compensation_text",
-    "compensation_hourly_cents",
-    "overall_confidence",
-    "notes",
-  ],
-  propertyOrdering: [
-    "company",
-    "title",
-    "location_text",
-    "jd_body",
-    "deadline_at",
-    "posted_at",
-    "work_model",
-    "target_year",
-    "target_season",
-    "class_year_tag",
-    "class_year_confidence",
-    "compensation_text",
-    "compensation_hourly_cents",
-    "overall_confidence",
-    "notes",
-  ],
-} as const;
-
-let _client: GoogleGenAI | null = null;
-function client(): GoogleGenAI {
+let _client: Groq | null = null;
+function client(): Groq {
   if (!_client) {
-    const apiKey = process.env.GEMINI_API_KEY;
+    const apiKey = process.env.GROQ_API_KEY;
     if (!apiKey) {
       throw new Error(
-        "GEMINI_API_KEY missing. Get one free at https://aistudio.google.com/apikey and add to .env.local + Vercel."
+        "GROQ_API_KEY missing. Get one free at https://console.groq.com/keys and add to .env.local + Vercel."
       );
     }
-    _client = new GoogleGenAI({ apiKey });
+    _client = new Groq({ apiKey });
   }
   return _client;
 }
@@ -213,24 +170,28 @@ export async function extractJobFromEvidence(
   }
 
   try {
-    const response = await client().models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: sections.join("\n\n---\n\n"),
-      config: {
-        systemInstruction: SYSTEM_PROMPT,
-        responseMimeType: "application/json",
-        responseSchema: RESPONSE_SCHEMA,
-        temperature: 0,
-        maxOutputTokens: 4000,
-      },
+    const completion = await client().chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: sections.join("\n\n---\n\n") },
+      ],
+      temperature: 0,
+      max_tokens: 4000,
+      response_format: { type: "json_object" },
     });
 
-    const text = response.text;
+    const text = completion.choices[0]?.message?.content;
     if (!text) {
       return { ...SAFE_DEFAULT, jd_url: input.url, notes: "empty response" };
     }
 
-    const parsed = JSON.parse(text) as Record<string, unknown>;
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) {
+      return { ...SAFE_DEFAULT, jd_url: input.url, notes: "no JSON found" };
+    }
+
+    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
 
     return {
       company:

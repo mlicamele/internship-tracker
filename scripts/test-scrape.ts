@@ -27,8 +27,8 @@ if (args[0] === "--" && args[1]) {
   urls = JSON.parse(raw);
 }
 
-if (!process.env.GEMINI_API_KEY) {
-  console.error("GEMINI_API_KEY missing. Get one free at https://aistudio.google.com/apikey, add to .env.local.");
+if (!process.env.GROQ_API_KEY) {
+  console.error("GROQ_API_KEY missing. Get one free at https://console.groq.com/keys, add to .env.local.");
   process.exit(1);
 }
 
