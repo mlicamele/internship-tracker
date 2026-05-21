@@ -402,17 +402,9 @@ export const DEFAULT_HIDDEN_COLUMNS = {
   source: false,
 };
 
-/** Columns hidden on small screens. */
+/** Columns hidden on small screens. Mobile is mostly for adding apps;
+ *  the rest of the columns become visible by scrolling. */
 export const MOBILE_HIDDEN_COLUMNS = [
-  "target",
-  "deadline",
-  "location",
-  "work_model",
-  "compensation",
-  "distance",
-  "next_interview",
-  "class_year",
-  "resume",
   "posted",
   "created",
   "source",

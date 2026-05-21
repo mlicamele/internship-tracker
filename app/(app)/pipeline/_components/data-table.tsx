@@ -75,9 +75,9 @@ export function PipelineTable({
           <thead className="sticky top-0 z-30 bg-background shadow-[0_1px_0_0_var(--color-border)]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id} className="border-b border-border">
-                {/* Sticky: edit-button column header */}
+                {/* Sticky-on-desktop, scrolls-on-mobile: edit-button header */}
                 <th
-                  className="sticky left-0 z-30 h-9 bg-background px-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground"
+                  className="h-9 bg-background px-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground md:sticky md:left-0 md:z-30"
                   style={{ width: EDIT_COL_W, minWidth: EDIT_COL_W }}
                 >
                   Edit
@@ -93,11 +93,11 @@ export function PipelineTable({
                         mobileHiddenSet.has(header.column.id) &&
                           "hidden md:table-cell",
                         isCompany &&
-                          "sticky z-20 bg-background shadow-[2px_0_0_0_var(--color-foreground)]"
+                          "md:sticky md:left-[76px] md:z-20 md:bg-background md:shadow-[2px_0_0_0_var(--color-foreground)]"
                       )}
                       style={
                         isCompany
-                          ? { left: EDIT_COL_W, minWidth: COMPANY_COL_W }
+                          ? { minWidth: COMPANY_COL_W }
                           : isRole
                             ? { maxWidth: ROLE_COL_MAX_W }
                             : undefined
@@ -131,9 +131,9 @@ export function PipelineTable({
                   key={row.id}
                   className="group/row border-b border-border last:border-b-0 transition-colors hover:bg-muted"
                 >
-                  {/* Sticky: open-detail button */}
+                  {/* Sticky-on-desktop, scrolls-on-mobile: open-detail button */}
                   <td
-                    className="sticky left-0 z-20 bg-background px-1 py-2 group-hover/row:bg-muted"
+                    className="bg-background px-1 py-2 group-hover/row:bg-muted md:sticky md:left-0 md:z-20"
                     style={{ width: EDIT_COL_W, minWidth: EDIT_COL_W }}
                   >
                     <Link
@@ -160,11 +160,11 @@ export function PipelineTable({
                           mobileHiddenSet.has(cell.column.id) &&
                             "hidden md:table-cell",
                           isCompany &&
-                            "sticky z-10 bg-background shadow-[2px_0_0_0_var(--color-foreground)] group-hover/row:bg-muted"
+                            "md:sticky md:left-[76px] md:z-10 md:bg-background md:shadow-[2px_0_0_0_var(--color-foreground)] md:group-hover/row:bg-muted"
                         )}
                         style={
                           isCompany
-                            ? { left: EDIT_COL_W, minWidth: COMPANY_COL_W, maxWidth: COMPANY_COL_W }
+                            ? { minWidth: COMPANY_COL_W, maxWidth: COMPANY_COL_W }
                             : isRole
                               ? { maxWidth: ROLE_COL_MAX_W }
                               : undefined
