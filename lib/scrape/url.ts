@@ -1,54 +1,44 @@
-// Server-side URL scraper. Fetches an HTML page, routes to a per-board parser
-// by hostname, applies regex extractors over the body, returns a structured
-// ScrapeResult. Never throws — returns thin=true on any failure.
+// Server-side URL scraper. Fetches an HTML page, looks for JSON-LD
+// structured data, applies per-board hints, then hands everything to
+// Sonnet for a single authoritative extraction. Never throws.
+//
+// Architecture (post-2025-05 rewrite):
+//   1. fetch HTML with realistic UA + 10s timeout
+//   2. cheerio parse
+//   3. extract JSON-LD JobPosting (free, no LLM)
+//   4. per-board parser collects HTML-based hints
+//   5. Sonnet sees URL + JSON-LD + per-board hints + raw HTML excerpt
+//   6. Sonnet returns fully-structured job, with confidence
 
 import * as cheerio from "cheerio";
-import { extractAll } from "./extract";
+import {
+  extractJobFromEvidence,
+  type ExtractedJob,
+} from "@/lib/anthropic/extract-job";
+import {
+  extractJobLd,
+  flattenLocation,
+  organizationName,
+  stripHtml,
+  type JsonLdJobPosting,
+} from "./jsonld";
 import { parse as parseGreenhouse } from "./parsers/greenhouse";
 import { parse as parseLever } from "./parsers/lever";
 import { parse as parseAshby } from "./parsers/ashby";
 import { parse as parseGeneric } from "./parsers/generic";
-import type { TargetSeason, WorkModel } from "@/lib/db/types";
+import type { ParserResult } from "./url-types";
 
-export interface ParserResult {
-  company: string | null;
-  title: string | null;
-  location: string | null;
-  jd_body: string;
-  extras: Record<string, string | null>;
-}
+export type { ParserResult } from "./url-types";
 
-export interface ScrapeResult {
-  company: string | null;
-  title: string | null;
-  location: string | null;
-  jd_body: string;
-  jd_url: string;
-  deadline_at: string | null;
-  posted_at: string | null;
-  work_model: WorkModel;
-  target_year: number | null;
-  target_season: TargetSeason | null;
-  compensation_text: string | null;
-  compensation_hourly_cents: number | null;
-  thin: boolean;
-}
+export type ScrapeResult = ExtractedJob & { thin: boolean };
 
-const THIN_THRESHOLD = 500;
-const FETCH_TIMEOUT_MS = 8000;
-
+const FETCH_TIMEOUT_MS = 10000;
+const THIN_THRESHOLD = 200;
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
-function selectParser(
-  hostname: string
-): (typeof parseGeneric) {
-  if (
-    hostname.includes("greenhouse.io") ||
-    hostname.includes("job-boards.greenhouse.io")
-  ) {
-    return parseGreenhouse;
-  }
+function selectParser(hostname: string): (typeof parseGeneric) {
+  if (hostname.includes("greenhouse.io")) return parseGreenhouse;
   if (hostname.includes("lever.co")) return parseLever;
   if (hostname.includes("ashbyhq.com")) return parseAshby;
   return parseGeneric;
@@ -58,21 +48,34 @@ function emptyResult(url: string): ScrapeResult {
   return {
     company: null,
     title: null,
-    location: null,
+    location_text: null,
     jd_body: "",
     jd_url: url,
     deadline_at: null,
     posted_at: null,
     work_model: "unspecified",
     target_year: null,
-    target_season: null,
+    target_season: "summer",
+    class_year_tag: "unspecified",
+    class_year_confidence: 0,
     compensation_text: null,
     compensation_hourly_cents: null,
+    overall_confidence: 0,
+    notes: "fetch or parse failed",
     thin: true,
   };
 }
 
-export async function scrapeUrl(url: string): Promise<ScrapeResult> {
+/**
+ * Scrape a URL and return a fully-structured job posting.
+ *
+ * @param url    the job posting URL
+ * @param userPastedJdBody  optional: user-pasted JD body (rare; form is URL-only now)
+ */
+export async function scrapeUrl(
+  url: string,
+  userPastedJdBody?: string
+): Promise<ScrapeResult> {
   let parsedUrl: URL;
   try {
     parsedUrl = new URL(url);
@@ -80,7 +83,8 @@ export async function scrapeUrl(url: string): Promise<ScrapeResult> {
     return emptyResult(url);
   }
 
-  let html: string;
+  // 1. Fetch HTML
+  let html = "";
   try {
     const res = await fetch(parsedUrl.toString(), {
       headers: {
@@ -91,53 +95,81 @@ export async function scrapeUrl(url: string): Promise<ScrapeResult> {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
       redirect: "follow",
     });
-    if (!res.ok) return emptyResult(url);
-    html = await res.text();
+    if (res.ok) {
+      html = await res.text();
+    }
   } catch {
-    return emptyResult(url);
+    // Network error: keep html empty, LLM will get URL-only
   }
 
-  let $: ReturnType<typeof cheerio.load>;
-  try {
-    $ = cheerio.load(html);
-  } catch {
-    return emptyResult(url);
+  // 2. Parse with cheerio if we got HTML
+  let jsonLd: JsonLdJobPosting | null = null;
+  let perBoardHints: ParserResult | null = null;
+  let canonicalUrl: string | undefined;
+
+  if (html) {
+    try {
+      const $ = cheerio.load(html);
+      jsonLd = extractJobLd($);
+      const parser = selectParser(parsedUrl.hostname);
+      perBoardHints = parser($ as unknown as cheerio.CheerioAPI);
+      canonicalUrl =
+        $('link[rel="canonical"]').attr("href") ||
+        $('meta[property="og:url"]').attr("content") ||
+        undefined;
+    } catch {
+      // ignore; continue with empty hints
+    }
   }
 
-  const parser = selectParser(parsedUrl.hostname);
-  const parsed = parser($ as unknown as cheerio.CheerioAPI);
+  // 3. Prepare evidence for the LLM
+  //    - If JSON-LD has a description, use it as the body excerpt (high quality)
+  //    - Otherwise use per-board parser body, then raw HTML body text
+  const jsonLdBody = jsonLd?.description ? stripHtml(jsonLd.description) : null;
+  const bodyForLlm =
+    userPastedJdBody ||
+    jsonLdBody ||
+    perBoardHints?.jd_body ||
+    "";
 
-  // Layer og:* / link[rel=canonical] tags on top of parser output
-  const canonical =
-    $('link[rel="canonical"]').attr("href") ||
-    $('meta[property="og:url"]').attr("content") ||
-    url;
+  // Trim raw HTML to keep LLM cost predictable, prefer the <body> contents
+  let htmlExcerpt: string | undefined;
+  if (html && !jsonLdBody && (!perBoardHints?.jd_body || perBoardHints.jd_body.length < 300)) {
+    try {
+      const $ = cheerio.load(html);
+      // Strip <script>, <style>, <nav>, <header>, <footer> from body for cleaner LLM input
+      $("script, style, nav, header, footer, svg").remove();
+      htmlExcerpt = $("body").text().replace(/\s+/g, " ").trim().slice(0, 12000);
+    } catch {
+      // ignore
+    }
+  }
 
-  const title =
-    parsed.title ||
-    $('meta[property="og:title"]').attr("content") ||
-    $("title").first().text().trim() ||
-    null;
+  // 4. Build hints for the LLM (JSON-LD takes precedence over per-board)
+  const llmHints: NonNullable<Parameters<typeof extractJobFromEvidence>[0]["perBoardHints"]> = {};
+  if (jsonLd) {
+    llmHints.company = organizationName(jsonLd.hiringOrganization);
+    llmHints.title = jsonLd.title ?? null;
+    llmHints.location = flattenLocation(jsonLd.jobLocation);
+    llmHints.jd_body = jsonLdBody ?? undefined;
+  }
+  if (perBoardHints) {
+    llmHints.company = llmHints.company || perBoardHints.company || null;
+    llmHints.title = llmHints.title || perBoardHints.title || null;
+    llmHints.location = llmHints.location || perBoardHints.location || null;
+    llmHints.jd_body = llmHints.jd_body || perBoardHints.jd_body || undefined;
+  }
 
-  const body = parsed.jd_body.replace(/\s+/g, " ").trim();
-  const thin = body.length < THIN_THRESHOLD;
+  // 5. Run LLM extraction
+  const extracted = await extractJobFromEvidence({
+    url: canonicalUrl || url,
+    htmlExcerpt,
+    jsonLd: jsonLd ?? undefined,
+    perBoardHints: llmHints,
+    userPastedJdBody,
+  });
 
-  // Run regex extractors over the body
-  const extracted = extractAll(body);
+  const thin = extracted.jd_body.length < THIN_THRESHOLD && !bodyForLlm;
 
-  return {
-    company: parsed.company,
-    title,
-    location: parsed.location,
-    jd_body: body,
-    jd_url: canonical,
-    deadline_at: extracted.deadline_at,
-    posted_at: extracted.posted_at,
-    work_model: extracted.work_model,
-    target_year: extracted.target_year,
-    target_season: extracted.target_season,
-    compensation_text: extracted.compensation_text,
-    compensation_hourly_cents: extracted.compensation_hourly_cents,
-    thin,
-  };
+  return { ...extracted, thin };
 }

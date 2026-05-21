@@ -1,5 +1,5 @@
 import type * as cheerio from "cheerio";
-import type { ParserResult } from "../url";
+import type { ParserResult } from "../url-types";
 
 /**
  * Greenhouse: job-boards.greenhouse.io/foo/jobs/123 OR boards.greenhouse.io/foo/jobs/123

@@ -1,5 +1,5 @@
 import type * as cheerio from "cheerio";
-import type { ParserResult } from "../url";
+import type { ParserResult } from "../url-types";
 
 /** Lever: jobs.lever.co/{company}/{role-id} */
 export function parse($: cheerio.CheerioAPI): ParserResult {

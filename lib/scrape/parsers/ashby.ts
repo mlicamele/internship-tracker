@@ -1,5 +1,5 @@
 import type * as cheerio from "cheerio";
-import type { ParserResult } from "../url";
+import type { ParserResult } from "../url-types";
 
 /**
  * Ashby: jobs.ashbyhq.com/{company}/{role-id}
