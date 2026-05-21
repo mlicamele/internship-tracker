@@ -109,6 +109,7 @@ export async function saveNewApplication(formData: FormData) {
     targetYear,
     targetSeason: extracted?.target_season ?? "summer",
     compensationHourlyDollars: extracted?.compensation_hourly_dollars ?? null,
+    minGradYear: extracted?.min_grad_year ?? null,
     maxGradYear: extracted?.max_grad_year ?? null,
     relocationAssistance: extracted?.relocation_assistance ?? null,
     extractionConfidences: extracted?.confidences ?? {},

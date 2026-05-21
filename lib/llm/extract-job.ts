@@ -26,7 +26,9 @@ export interface ExtractedJob {
   work_model: WorkModel | null;
   target_year: number | null;
   target_season: TargetSeason;
-  /** Latest graduation year still eligible (e.g. 2029 = "must graduate by 2029"). Null if not stated. */
+  /** Earliest graduation year still eligible (e.g. "Dec 2027 or later" → 2027). Null if no lower bound. */
+  min_grad_year: number | null;
+  /** Latest graduation year still eligible (e.g. "rising junior+" for SS27 → 2029). Null if no upper bound. */
   max_grad_year: number | null;
   relocation_assistance: RelocationAssistance | null;
   /** Hourly rate in whole dollars (e.g. 50 for $50/hr). Null if not stated or non-numeric. */
@@ -48,6 +50,7 @@ const SAFE_DEFAULT: ExtractedJob = {
   work_model: null,
   target_year: null,
   target_season: "summer",
+  min_grad_year: null,
   max_grad_year: null,
   relocation_assistance: null,
   compensation_hourly_dollars: null,
@@ -76,7 +79,8 @@ OUTPUT STRICT JSON ONLY — no markdown, no prose, no code fence. Match this exa
   "work_model": "remote" | "hybrid" | "onsite" | null,
   "target_year": integer | null,           // e.g. 2027
   "target_season": "summer" | "fall" | "winter" | "spring",
-  "max_grad_year": integer | null,         // latest grad year still eligible; null if open / unstated
+  "min_grad_year": integer | null,         // EARLIEST grad year still eligible; null if no lower bound stated
+  "max_grad_year": integer | null,         // LATEST grad year still eligible; null if no upper bound stated
   "relocation_assistance": "provided" | "not_provided" | null,
   "compensation_hourly_dollars": integer | null,
   "confidences": {                         // per-field "high" | "medium" | "low". Omit a key entirely if no signal.
@@ -88,6 +92,7 @@ OUTPUT STRICT JSON ONLY — no markdown, no prose, no code fence. Match this exa
     "work_model": "high"|"medium"|"low",
     "target_year": "high"|"medium"|"low",
     "target_season": "high"|"medium"|"low",
+    "min_grad_year": "high"|"medium"|"low",
     "max_grad_year": "high"|"medium"|"low",
     "relocation_assistance": "high"|"medium"|"low",
     "compensation_hourly_dollars": "high"|"medium"|"low"
@@ -101,28 +106,39 @@ Rules:
 - title: role title only, no company prefix. "Software Engineer Intern" not "Anthropic - SWE Intern".
 - locations: ARRAY of distinct locations the role is listed for. Each item is a short readable string like "San Francisco, CA" or "London, UK" or "Remote". When a JD lists multiple cities (common for quant roles, big tech multi-office postings), include each as a separate array element — do NOT join them with semicolons or " · ". Order does not matter. If the role is remote, use ["Remote"]. If location is unknown, use an empty array [].
 - jd_body: clean plain text. Strip HTML. Preserve paragraphs + bullets. Empty string if unknown.
-- max_grad_year: STRICT. The LATEST graduation year (e.g. 2029) that still makes a candidate eligible. Look for two kinds of phrasing — both count as explicit:
-    A) Direct graduation-year language. Map literally:
-       * "Must be graduating in 2027 or 2028" → 2028
-       * "Graduating by Spring 2029" → 2029
-       * "Open to candidates graduating between 2027 and 2030" → 2030
-       * "Class of 2028 or 2029" → 2029
-       * "Anticipated graduation: May 2028 or later" → null (no upper bound stated)
-       * "Must graduate no later than December 2028" → 2028
-    B) Class-year language combined with the internship's target_year. Convert with this rule:
-       Rising-class label refers to the year AFTER the summer internship runs. For target_year=Y:
-         - "rising junior" / "junior+" / "must be a junior or above" → max_grad_year = Y + 2
-         - "rising sophomore" / "sophomore+" → max_grad_year = Y + 3
-         - "rising senior" / "senior only" → max_grad_year = Y + 1
-         - "open to all undergraduate years" / "freshman+" / "any class year" → null (open)
-       Example (target_year=2027): "Rising junior+ for Summer 2027" → max_grad_year = 2029.
-       Example (target_year=2027): "Rising senior only" → max_grad_year = 2028.
-    DO NOT INFER from weak context like "Summer 2027 Intern" alone, "CS student", "undergraduate" alone, or job seniority. If the JD doesn't explicitly state eligibility via grad year OR class year, return null with confidence 0. Prefer null over a guess.
-- confidences: emit a confidence TIER for every field you populated with a non-null/non-default value. Three values only:
+- min_grad_year / max_grad_year: STRICT. Two INDEPENDENT eligibility bounds on the candidate's graduation year. Read very carefully — "or later" vs "or earlier" is the difference between min and max, and reversing them silently breaks filtering.
+
+  min_grad_year = the EARLIEST grad year still eligible. Used when the JD says "must not have already graduated" or sets a floor like "graduating in YYYY or later."
+    * "Graduating December 2027 or later" → min_grad_year = 2027 (no upper bound mentioned → max_grad_year = null)
+    * "Class of 2027 and beyond" → min = 2027
+    * "Must not have graduated before May 2026" → min = 2026
+    * "We hire candidates graduating after June 2027" → min = 2027 (interpret "after" as inclusive of the stated year)
+
+  max_grad_year = the LATEST grad year still eligible. Used when the JD says "must not be too early in degree" or sets a ceiling like "must graduate by Spring YYYY."
+    * "Must be graduating by Spring 2028" → max_grad_year = 2028
+    * "Graduating no later than December 2028" → max = 2028
+    * "Senior only / class of 2028" → max = 2028 (also min = 2028 since closed)
+    * "Rising junior+" (with internship target_year=Y) → max = Y + 2 (rising junior in summer Y graduates Y+2)
+    * "Rising sophomore+" → max = Y + 3
+    * "Rising senior only" → max = Y + 1
+    * "Open to all undergraduate years" / "any class year" → both null
+
+  BOTH bounds together:
+    * "Class of 2028 or 2029" → min = 2028, max = 2029
+    * "Graduating between 2027 and 2029" → min = 2027, max = 2029
+    * "Rising sophomore to rising senior" (target_year=Y) → min = Y+1, max = Y+3
+
+  KEY DISCRIMINATOR — read the directional word:
+    * "or later" / "and beyond" / "after" / "or beyond" → it's a min_grad_year (LOWER bound)
+    * "or earlier" / "by" / "no later than" / "before" → it's a max_grad_year (UPPER bound)
+    * "between X and Y" / "class of X or Y" → BOTH bounds; X is min, Y is max
+
+  DO NOT INFER from weak context like "Summer 2027 Intern" alone, "CS student", or job seniority. If the JD doesn't explicitly state eligibility via grad year OR class year, return null for BOTH bounds. Prefer null over a guess.
+- confidences: emit a confidence TIER ONLY for fields where you produced a real, non-null value. If a field is null, omit its key from the confidences object — DO NOT emit any tier (not even "low") for null/missing fields. The confidences object should be SHORTER for thin JDs, not the same length with all "low" values. Three valid values:
     * "high"   — pulled directly from a clearly-labeled structured source (JSON-LD field, board-API field) OR an unambiguous explicit statement in the JD prose
     * "medium" — stated in prose with some interpretation needed (e.g. multiple candidate values, geo-specific pay range, derived from "rising junior" + target_year)
-    * "low"    — weak inference (e.g. work_model="onsite" because location is a city and no remote language was used). If you would have given less than this, OMIT the field instead.
-  If a field is null, default, or "unspecified", OMIT its key from the confidences object entirely. Do NOT emit "low" for missing fields.
+    * "low"    — weak inference. If you would have rated lower than this, return null for the field itself and OMIT the confidence key.
+  Concrete: if compensation_hourly_dollars is null, then "compensation_hourly_dollars" MUST NOT appear in confidences. Same for every other field.
 - relocation_assistance: does the company SUPPORT the candidate moving for the role?
     * "Relocation assistance provided" / "we will help you relocate" / "housing stipend" / "corporate housing" / "relocation reimbursement" / "visa sponsorship for relocation" → "provided"
     * "Local candidates only" / "no relocation assistance" / "must already reside in X" → "not_provided"
@@ -275,7 +291,7 @@ export async function extractJobFromEvidence(
 
     const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
 
-    return {
+    const result: ExtractedJob = {
       company:
         typeof parsed.company === "string" ? parsed.company.trim() || null : null,
       title:
@@ -292,6 +308,7 @@ export async function extractJobFromEvidence(
       target_season: TARGET_SEASON_VALUES.has(parsed.target_season as string)
         ? (parsed.target_season as TargetSeason)
         : "summer",
+      min_grad_year: parseGradYear(parsed.min_grad_year),
       max_grad_year: parseGradYear(parsed.max_grad_year),
       relocation_assistance: RELOCATION_VALUES.has(
         parsed.relocation_assistance as string
@@ -308,6 +325,11 @@ export async function extractJobFromEvidence(
       overall_confidence: parseConfidence(parsed.overall_confidence),
       notes: typeof parsed.notes === "string" ? parsed.notes : "",
     };
+
+    // Strip confidence keys for fields that ended up null/default — keeps
+    // the badge from appearing on empty values even if the LLM emits "low".
+    result.confidences = filterConfidencesToPopulated(result);
+    return result;
   } catch (err) {
     return {
       ...SAFE_DEFAULT,
@@ -315,6 +337,36 @@ export async function extractJobFromEvidence(
       notes: err instanceof Error ? err.message : "extract error",
     };
   }
+}
+
+/**
+ * Strip per-field confidence entries for any field whose value is null,
+ * empty, or otherwise unpopulated. Defensive — the prompt asks the LLM to
+ * omit these, but Scout sometimes emits "low" anyway, which would surface
+ * a misleading confidence badge in the UI.
+ */
+function filterConfidencesToPopulated(
+  r: ExtractedJob
+): Record<string, ConfidenceTier> {
+  const populated: Record<string, boolean> = {
+    company: r.company !== null,
+    title: r.title !== null,
+    locations: r.locations.length > 0,
+    deadline_at: r.deadline_at !== null,
+    posted_at: r.posted_at !== null,
+    work_model: r.work_model !== null,
+    target_year: r.target_year !== null,
+    target_season: r.target_season !== null && r.target_season !== undefined,
+    min_grad_year: r.min_grad_year !== null,
+    max_grad_year: r.max_grad_year !== null,
+    relocation_assistance: r.relocation_assistance !== null,
+    compensation_hourly_dollars: r.compensation_hourly_dollars !== null,
+  };
+  const out: Record<string, ConfidenceTier> = {};
+  for (const [k, v] of Object.entries(r.confidences)) {
+    if (populated[k]) out[k] = v;
+  }
+  return out;
 }
 
 function parseLocations(v: unknown): ExtractedJob["locations"] {

@@ -50,6 +50,7 @@ function emptyResult(url: string): ScrapeResult {
     work_model: null,
     target_year: null,
     target_season: "summer",
+    min_grad_year: null,
     max_grad_year: null,
     relocation_assistance: null,
     compensation_hourly_dollars: null,

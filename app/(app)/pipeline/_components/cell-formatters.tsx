@@ -84,9 +84,17 @@ export function WorkModelCell({ model }: { model: WorkModel | null }) {
   return <Pill>{WORK_MODEL_LABEL[model]}</Pill>;
 }
 
-export function formatMaxGradYear(year: number | null): React.ReactNode {
-  if (year === null) return <span className="text-muted-foreground">—</span>;
-  return <Pill>≤ {year}</Pill>;
+export function formatGradYearWindow(
+  min: number | null,
+  max: number | null
+): React.ReactNode {
+  if (min === null && max === null)
+    return <span className="text-muted-foreground">—</span>;
+  if (min !== null && max !== null) {
+    return <Pill>{min === max ? `${min}` : `${min}–${max}`}</Pill>;
+  }
+  if (min !== null) return <Pill>≥ {min}</Pill>;
+  return <Pill>≤ {max}</Pill>;
 }
 
 const RELOCATION_LABEL: Record<RelocationAssistance, string> = {

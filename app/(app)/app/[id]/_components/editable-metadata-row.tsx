@@ -6,7 +6,7 @@ import {
   WorkModelCell,
   formatCompensation,
   formatDate,
-  formatMaxGradYear,
+  formatGradYearWindow,
 } from "@/app/(app)/pipeline/_components/cell-formatters";
 import { ExternalLink } from "@/components/icons";
 import {
@@ -102,29 +102,73 @@ export function EditableMetadataRow({
         </div>
       </div>
 
-      <ItemWithLabel
-        label="Grad year ≤"
-        confidence={conf.max_grad_year}
-      >
-        <InlineEdit<string>
-          value={r.max_grad_year ? String(r.max_grad_year) : ""}
-          display={(v) => formatMaxGradYear(v ? Number(v) : null)}
-          edit={({ draft, setDraft, inputRef }) => (
-            <input
-              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
-              type="number"
-              min={2024}
-              max={2034}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              className={INPUT_CLS}
-              style={{ width: "6rem" }}
-              placeholder="2029"
+      <div className="space-y-0.5 sm:col-span-2">
+        <div className="flex items-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span>Grad year window</span>
+          <ConfidenceBadge
+            confidence={conf.min_grad_year ?? conf.max_grad_year}
+          />
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground">min</span>
+            <InlineEdit<string>
+              value={r.min_grad_year ? String(r.min_grad_year) : ""}
+              display={(v) =>
+                v ? (
+                  <span className="text-sm">{v}</span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">—</span>
+                )
+              }
+              edit={({ draft, setDraft, inputRef }) => (
+                <input
+                  ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+                  type="number"
+                  min={2024}
+                  max={2034}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  className={INPUT_CLS}
+                  style={{ width: "5.5rem" }}
+                  placeholder="2027"
+                />
+              )}
+              onSave={makeSaver(appId, "min_grad_year")}
             />
-          )}
-          onSave={makeSaver(appId, "max_grad_year")}
-        />
-      </ItemWithLabel>
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground">max</span>
+            <InlineEdit<string>
+              value={r.max_grad_year ? String(r.max_grad_year) : ""}
+              display={(v) =>
+                v ? (
+                  <span className="text-sm">{v}</span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">—</span>
+                )
+              }
+              edit={({ draft, setDraft, inputRef }) => (
+                <input
+                  ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+                  type="number"
+                  min={2024}
+                  max={2034}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  className={INPUT_CLS}
+                  style={{ width: "5.5rem" }}
+                  placeholder="2029"
+                />
+              )}
+              onSave={makeSaver(appId, "max_grad_year")}
+            />
+          </div>
+          <span className="text-xs text-muted-foreground">
+            display: {formatGradYearWindow(r.min_grad_year, r.max_grad_year)}
+          </span>
+        </div>
+      </div>
 
       <ItemWithLabel
         label="Relocation"

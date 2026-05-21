@@ -90,7 +90,9 @@ export interface Role {
   jd_snapshot_at: string | null;
   deadline_at: string | null;
   posted_at: string | null;
-  /** Latest graduation year still eligible for this role. Null = open to all years. */
+  /** Earliest graduation year still eligible (e.g. "Dec 2027 or later" → 2027). Null = no lower bound. */
+  min_grad_year: number | null;
+  /** Latest graduation year still eligible (e.g. "rising junior+" for SS27 → 2029). Null = no upper bound. */
   max_grad_year: number | null;
   relocation_assistance: RelocationAssistance | null;
   /** Per-field confidence tier emitted by the LLM extractor. Missing keys = no signal / manually edited. */

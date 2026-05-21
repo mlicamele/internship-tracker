@@ -70,6 +70,7 @@ async function main() {
     "work_model",
     "target_year",
     "target_season",
+    "min_grad_year",
     "max_grad_year",
     "relocation_assistance",
     "deadline_at",

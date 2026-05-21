@@ -11,7 +11,7 @@ import {
   formatDate,
   formatDistance,
   formatLocations,
-  formatMaxGradYear,
+  formatGradYearWindow,
   formatTargetTerm,
 } from "@/app/(app)/pipeline/_components/cell-formatters";
 import type { PipelineRow } from "@/app/(app)/pipeline/_components/columns";
@@ -73,7 +73,9 @@ export function InboxCard({ row }: { row: PipelineRow }) {
         <Stat label="Mode">
           <WorkModelCell model={r.work_model} />
         </Stat>
-        <Stat label="Grad ≤">{formatMaxGradYear(r.max_grad_year)}</Stat>
+        <Stat label="Grad year">
+          {formatGradYearWindow(r.min_grad_year, r.max_grad_year)}
+        </Stat>
         <Stat label="Relocation">
           <RelocationAssistanceCell value={r.relocation_assistance} />
         </Stat>

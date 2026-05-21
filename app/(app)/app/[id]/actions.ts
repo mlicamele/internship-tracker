@@ -180,6 +180,7 @@ export type RoleEditableField =
   | "locations"
   | "deadline_at"
   | "posted_at"
+  | "min_grad_year"
   | "max_grad_year"
   | "relocation_assistance"
   | "target_year"
@@ -252,6 +253,19 @@ export async function updateRoleFieldAction(
     }
     case "posted_at": {
       patch.posted_at = dateInputToIso(emptyToNull(rawValue ?? ""));
+      break;
+    }
+    case "min_grad_year": {
+      const v = emptyToNull(rawValue ?? "");
+      if (v === null) {
+        patch.min_grad_year = null;
+      } else {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 2024 || n > 2034) {
+          return { ok: false, error: "Grad year must be 2024–2034" };
+        }
+        patch.min_grad_year = n;
+      }
       break;
     }
     case "max_grad_year": {

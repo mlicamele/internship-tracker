@@ -19,6 +19,7 @@ export interface CreateRoleInput {
   jdBodyText?: string | null;
   deadlineAt?: string | null;
   postedAt?: string | null;
+  minGradYear?: number | null;
   maxGradYear?: number | null;
   relocationAssistance?: RelocationAssistance | null;
   source: RoleSource;
@@ -49,6 +50,7 @@ export async function create(
       jd_snapshot_at: input.jdBodyText ? new Date().toISOString() : null,
       deadline_at: input.deadlineAt ?? null,
       posted_at: input.postedAt ?? null,
+      min_grad_year: input.minGradYear ?? null,
       max_grad_year: input.maxGradYear ?? null,
       relocation_assistance: input.relocationAssistance ?? null,
       source: input.source,
@@ -72,6 +74,7 @@ export type RoleUpdate = Partial<{
   jd_body_text: string | null;
   deadline_at: string | null;
   posted_at: string | null;
+  min_grad_year: number | null;
   max_grad_year: number | null;
   relocation_assistance: RelocationAssistance | null;
   target_year: number | null;

@@ -11,7 +11,7 @@ import {
   formatDate,
   formatDistance,
   formatLocations,
-  formatMaxGradYear,
+  formatGradYearWindow,
   formatNextInterview,
   formatTargetTerm,
 } from "./cell-formatters";
@@ -126,10 +126,14 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     cell: ({ row }) => formatNextInterview(row.original.next_interview),
   },
   {
-    id: "max_grad_year",
+    id: "grad_year_window",
     accessorFn: (row) => row.role.max_grad_year ?? Number.POSITIVE_INFINITY,
-    header: SORT_HEADER("Grad ≤"),
-    cell: ({ row }) => formatMaxGradYear(row.original.role.max_grad_year),
+    header: SORT_HEADER("Grad year"),
+    cell: ({ row }) =>
+      formatGradYearWindow(
+        row.original.role.min_grad_year,
+        row.original.role.max_grad_year
+      ),
   },
   {
     id: "relocation_assistance",
