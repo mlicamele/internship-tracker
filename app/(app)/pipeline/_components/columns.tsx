@@ -133,7 +133,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.target_year ?? 0,
     header: SORT_HEADER("Target"),
     cell: ({ row }) => (
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center gap-0.5">
         <TableTextField
           type="number"
           min={2024}
@@ -177,7 +177,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
       row.role.deadline_at ? new Date(row.role.deadline_at).getTime() : Number.POSITIVE_INFINITY,
     header: SORT_HEADER("Deadline"),
     cell: ({ row }) => (
-      <span className="inline-flex items-center">
+      <span className="inline-flex items-center gap-0.5">
         <TableTextField
           type="date"
           value={row.original.role.deadline_at ? row.original.role.deadline_at.slice(0, 10) : ""}
@@ -197,7 +197,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.locations[0]?.text ?? "",
     header: SORT_HEADER("Location"),
     cell: ({ row }) => (
-      <span className="inline-flex items-center">
+      <span className="inline-flex items-center gap-0.5">
         <LocationsCell
           applicationId={row.original.id}
           locations={row.original.role.locations}
@@ -215,7 +215,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.work_model,
     header: SORT_HEADER("Mode"),
     cell: ({ row }) => (
-      <span className="inline-flex items-center">
+      <span className="inline-flex items-center gap-0.5">
         <TableEnumField<WorkModel>
           value={row.original.role.work_model}
           options={[
@@ -242,7 +242,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.compensation_hourly_dollars ?? 0,
     header: SORT_HEADER("$/hr"),
     cell: ({ row }) => (
-      <span className="inline-flex items-center">
+      <span className="inline-flex items-center gap-0.5">
         <TableTextField
           type="number"
           min={0}
@@ -299,7 +299,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.max_grad_year ?? Number.POSITIVE_INFINITY,
     header: SORT_HEADER("Grad year"),
     cell: ({ row }) => (
-      <span className="inline-flex items-center gap-1">
+      <span className="inline-flex items-center gap-0.5">
         <TableTextField
           type="number"
           min={2024}
@@ -337,7 +337,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.relocation_assistance,
     header: SORT_HEADER("Relocation"),
     cell: ({ row }) => (
-      <span className="inline-flex items-center">
+      <span className="inline-flex items-center gap-0.5">
         <TableEnumField<RelocationAssistance>
           value={row.original.role.relocation_assistance}
           options={[

@@ -39,7 +39,7 @@ export function RevertButton({
       }}
       disabled={pending || !visible}
       className={cn(
-        "ml-1 inline-flex size-5 items-center justify-center rounded-sm text-sm text-muted-foreground hover:bg-muted hover:text-foreground",
+        "inline-flex size-5 items-center justify-center rounded-sm text-sm text-muted-foreground hover:bg-muted hover:text-foreground",
         !visible && "invisible pointer-events-none"
       )}
       title="Revert to auto-extracted value"
