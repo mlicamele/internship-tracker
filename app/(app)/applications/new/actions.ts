@@ -8,8 +8,9 @@ import { create as createRole } from "@/lib/db/roles";
 import { createApplication } from "@/lib/db/applications";
 import { scrapeUrl } from "@/lib/scrape/url";
 import { extractAll } from "@/lib/scrape/extract";
+import { classifyRole } from "@/lib/anthropic/classify";
 import { geocode } from "@/lib/geocode";
-import type { TargetSeason, WorkModel } from "@/lib/db/types";
+import type { ClassYearTag, TargetSeason, WorkModel } from "@/lib/db/types";
 
 export const runtime = "nodejs";
 
@@ -97,17 +98,52 @@ export async function saveNewApplication(formData: FormData) {
   const jdUrl = url ?? null;
   const deadlineAt = scraped?.deadline_at ?? extracted.deadline_at;
   const postedAt = scraped?.posted_at ?? extracted.posted_at;
-  const workModel =
+  let workModel: WorkModel =
     scraped?.work_model && scraped.work_model !== "unspecified"
       ? scraped.work_model
       : extracted.work_model;
-  const targetYear = scraped?.target_year ?? extracted.target_year ?? defaultTargetYear();
-  const targetSeason: TargetSeason =
+  let targetYear = scraped?.target_year ?? extracted.target_year;
+  let targetSeason: TargetSeason =
     scraped?.target_season ?? extracted.target_season ?? "summer";
   const compensationText =
     scraped?.compensation_text ?? extracted.compensation_text;
   const compensationHourlyCents =
     scraped?.compensation_hourly_cents ?? extracted.compensation_hourly_cents;
+
+  // 4.5 LLM classification (Bundle 3): fill in fields scrape+regex missed
+  let classYearTag: ClassYearTag = "unspecified";
+  let classYearConfidence: number | null = null;
+  const needsClassify =
+    bodyForExtraction.length >= 500 &&
+    (workModel === "unspecified" || targetYear === null);
+  // Always try class_year_tag since regex can't catch it; gate the rest
+  if (bodyForExtraction.length >= 500) {
+    const classification = await classifyRole({
+      jd_body: bodyForExtraction,
+      title: roleTitle,
+    });
+    if (
+      classification.class_year_tag !== "unspecified" &&
+      classification.confidence >= 0.5
+    ) {
+      classYearTag = classification.class_year_tag;
+      classYearConfidence = classification.confidence;
+    }
+    if (needsClassify) {
+      if (targetYear === null && classification.target_year !== null) {
+        targetYear = classification.target_year;
+        targetSeason = classification.target_season;
+      }
+      if (workModel === "unspecified" && classification.confidence >= 0.6) {
+        workModel = classification.work_model;
+      }
+    }
+  }
+
+  // Final fallback for target year
+  if (targetYear === null) {
+    targetYear = defaultTargetYear();
+  }
 
   // 5. Geocode location if present (best-effort)
   let roleLat: number | null = null;
@@ -143,7 +179,8 @@ export async function saveNewApplication(formData: FormData) {
     targetSeason,
     compensationText,
     compensationHourlyCents,
-    classYearTag: "unspecified",
+    classYearTag,
+    classYearConfidence,
     source: "manual",
   });
 
