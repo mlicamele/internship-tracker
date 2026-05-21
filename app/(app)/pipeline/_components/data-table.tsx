@@ -79,7 +79,7 @@ export function PipelineTable({
                   className="sticky left-0 z-30 h-9 bg-background px-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground"
                   style={{ width: EDIT_COL_W, minWidth: EDIT_COL_W }}
                 >
-                  Open
+                  Edit
                 </th>
                 {headerGroup.headers.map((header) => {
                   const isCompany = header.column.id === "company";
@@ -139,7 +139,7 @@ export function PipelineTable({
                       className="inline-flex items-center gap-1 rounded-sm border border-border bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     >
                       <Eye className="size-3.5" />
-                      View
+                      Edit
                     </Link>
                   </td>
                   {row.getVisibleCells().map((cell) => {

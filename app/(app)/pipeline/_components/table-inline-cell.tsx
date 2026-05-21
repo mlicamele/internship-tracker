@@ -3,7 +3,7 @@
 import {
   type ReactNode,
   useCallback,
-  useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   useTransition,
@@ -49,7 +49,9 @@ export function TableInlineCell<T>({
     setEditing(true);
   }
 
-  useEffect(() => {
+  // useLayoutEffect runs synchronously after mount but before paint, so the
+  // input is focused on the same click that flipped editing on (no double-click).
+  useLayoutEffect(() => {
     if (editing && inputRef.current) {
       inputRef.current.focus();
       if (
@@ -84,6 +86,8 @@ export function TableInlineCell<T>({
   }, [value]);
 
   if (!editing) {
+    // Match the input's box exactly (h-7 + px-1.5 + transparent border) so
+    // the cell doesn't visibly resize when switching to edit mode.
     return (
       <button
         type="button"
@@ -91,7 +95,7 @@ export function TableInlineCell<T>({
           e.stopPropagation();
           startEdit();
         }}
-        className="-mx-1 cursor-text rounded-sm px-1 py-0.5 text-left underline decoration-dotted decoration-muted-foreground/40 underline-offset-4 hover:bg-muted/40 hover:decoration-muted-foreground"
+        className="inline-flex h-7 cursor-text items-center rounded-sm border border-transparent px-1.5 text-left underline decoration-dotted decoration-muted-foreground/40 underline-offset-4 hover:bg-muted/40 hover:decoration-muted-foreground"
       >
         {display(value)}
       </button>
@@ -100,7 +104,7 @@ export function TableInlineCell<T>({
 
   return (
     <span
-      className="inline-flex items-center gap-1"
+      className="inline-flex h-7 items-center gap-1"
       onClick={(e) => e.stopPropagation()}
       onKeyDown={(e) => {
         if (e.key === "Enter" && !(e.target instanceof HTMLTextAreaElement)) {
