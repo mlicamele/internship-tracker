@@ -95,9 +95,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           value={row.original.role.title}
           onSave={(v) => updateRoleFieldAction(row.original.id, "title", v)}
         />
-        {isDirty(row.original, "title", row.original.role.title) && (
-          <RevertButton applicationId={row.original.id} field="title" />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="title"
+          visible={isDirty(row.original, "title", row.original.role.title)}
+        />
       </span>
     ),
     enableHiding: false,
@@ -137,9 +139,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           inputClassName="w-14"
           placeholder="—"
         />
-        {isDirty(row.original, "target_year", row.original.role.target_year) && (
-          <RevertButton applicationId={row.original.id} field="target_year" />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="target_year"
+          visible={isDirty(row.original, "target_year", row.original.role.target_year)}
+        />
         <TableEnumField<TargetSeason>
           value={row.original.role.target_season}
           options={[
@@ -155,9 +159,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
             updateRoleFieldAction(row.original.id, "target_season", v ?? "summer")
           }
         />
-        {isDirty(row.original, "target_season", row.original.role.target_season) && (
-          <RevertButton applicationId={row.original.id} field="target_season" />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="target_season"
+          visible={isDirty(row.original, "target_season", row.original.role.target_season)}
+        />
       </span>
     ),
   },
@@ -174,9 +180,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           onSave={(v) => updateRoleFieldAction(row.original.id, "deadline_at", v)}
           inputClassName="w-32"
         />
-        {isDirty(row.original, "deadline_at", row.original.role.deadline_at) && (
-          <RevertButton applicationId={row.original.id} field="deadline_at" />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="deadline_at"
+          visible={isDirty(row.original, "deadline_at", row.original.role.deadline_at)}
+        />
       </span>
     ),
   },
@@ -190,9 +198,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           applicationId={row.original.id}
           locations={row.original.role.locations}
         />
-        {isDirty(row.original, "locations", row.original.role.locations) && (
-          <RevertButton applicationId={row.original.id} field="locations" />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="locations"
+          visible={isDirty(row.original, "locations", row.original.role.locations)}
+        />
       </span>
     ),
   },
@@ -215,9 +225,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
             updateRoleFieldAction(row.original.id, "work_model", v ?? "")
           }
         />
-        {isDirty(row.original, "work_model", row.original.role.work_model) && (
-          <RevertButton applicationId={row.original.id} field="work_model" />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="work_model"
+          visible={isDirty(row.original, "work_model", row.original.role.work_model)}
+        />
       </span>
     ),
   },
@@ -243,16 +255,15 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
             updateRoleFieldAction(row.original.id, "compensation_hourly_dollars", v)
           }
         />
-        {isDirty(
-          row.original,
-          "compensation_hourly_dollars",
-          row.original.role.compensation_hourly_dollars
-        ) && (
-          <RevertButton
-            applicationId={row.original.id}
-            field="compensation_hourly_dollars"
-          />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="compensation_hourly_dollars"
+          visible={isDirty(
+            row.original,
+            "compensation_hourly_dollars",
+            row.original.role.compensation_hourly_dollars
+          )}
+        />
       </span>
     ),
   },
@@ -294,9 +305,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           value={row.original.role.min_grad_year ? String(row.original.role.min_grad_year) : ""}
           onSave={(v) => updateRoleFieldAction(row.original.id, "min_grad_year", v)}
         />
-        {isDirty(row.original, "min_grad_year", row.original.role.min_grad_year) && (
-          <RevertButton applicationId={row.original.id} field="min_grad_year" />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="min_grad_year"
+          visible={isDirty(row.original, "min_grad_year", row.original.role.min_grad_year)}
+        />
         <span className="text-muted-foreground">–</span>
         <TableTextField
           type="number"
@@ -307,9 +320,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           value={row.original.role.max_grad_year ? String(row.original.role.max_grad_year) : ""}
           onSave={(v) => updateRoleFieldAction(row.original.id, "max_grad_year", v)}
         />
-        {isDirty(row.original, "max_grad_year", row.original.role.max_grad_year) && (
-          <RevertButton applicationId={row.original.id} field="max_grad_year" />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="max_grad_year"
+          visible={isDirty(row.original, "max_grad_year", row.original.role.max_grad_year)}
+        />
       </span>
     ),
   },
@@ -331,16 +346,15 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
             updateRoleFieldAction(row.original.id, "relocation_assistance", v ?? "")
           }
         />
-        {isDirty(
-          row.original,
-          "relocation_assistance",
-          row.original.role.relocation_assistance
-        ) && (
-          <RevertButton
-            applicationId={row.original.id}
-            field="relocation_assistance"
-          />
-        )}
+        <RevertButton
+          applicationId={row.original.id}
+          field="relocation_assistance"
+          visible={isDirty(
+            row.original,
+            "relocation_assistance",
+            row.original.role.relocation_assistance
+          )}
+        />
       </span>
     ),
   },
