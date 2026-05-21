@@ -3,6 +3,7 @@
 import {
   type CSSProperties,
   type InputHTMLAttributes,
+  type KeyboardEvent,
   type ReactNode,
   useEffect,
   useRef,
@@ -36,6 +37,7 @@ export function TableTextField({
   className,
   inputClassName,
   style,
+  multiline = false,
   ...inputProps
 }: {
   value: string;
@@ -46,6 +48,8 @@ export function TableTextField({
   className?: string;
   inputClassName?: string;
   style?: CSSProperties;
+  /** Use a textarea that wraps and scrolls vertically inside the cell. Row stays h-7. */
+  multiline?: boolean;
 } & Omit<
   InputHTMLAttributes<HTMLInputElement>,
   "value" | "onChange" | "onBlur" | "onKeyDown" | "className"
@@ -108,30 +112,57 @@ export function TableTextField({
       onClick={(e) => e.stopPropagation()}
     >
       {prefix && <span className="text-muted-foreground">{prefix}</span>}
-      <input
-        {...inputProps}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            (e.target as HTMLInputElement).blur();
-          } else if (e.key === "Escape") {
-            e.preventDefault();
-            cancel();
-            (e.target as HTMLInputElement).blur();
-          }
-        }}
-        style={style}
-        className={cn(
-          "h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-0",
-          // Strip the number-spinner arrows so number inputs read like plain text
-          "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
-          align === "right" && "text-right",
-          inputClassName
-        )}
-      />
+      {multiline ? (
+        <textarea
+          rows={1}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
+            if (e.key === "Enter") {
+              // Single-line semantics: Enter commits, never inserts newline
+              e.preventDefault();
+              (e.target as HTMLTextAreaElement).blur();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              cancel();
+              (e.target as HTMLTextAreaElement).blur();
+            }
+          }}
+          style={style}
+          className={cn(
+            // Text wraps inside the cell; row height stays h-7 with internal scroll
+            "h-full min-w-0 flex-1 resize-none overflow-y-auto whitespace-normal break-words border-0 bg-transparent p-0 text-sm leading-tight outline-none placeholder:text-muted-foreground focus-visible:ring-0",
+            align === "right" && "text-right",
+            inputClassName
+          )}
+        />
+      ) : (
+        <input
+          {...inputProps}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              (e.target as HTMLInputElement).blur();
+            } else if (e.key === "Escape") {
+              e.preventDefault();
+              cancel();
+              (e.target as HTMLInputElement).blur();
+            }
+          }}
+          style={style}
+          className={cn(
+            "h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-0",
+            // Strip the number-spinner arrows so number inputs read like plain text
+            "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
+            align === "right" && "text-right",
+            inputClassName
+          )}
+        />
+      )}
       {suffix && <span className="text-muted-foreground">{suffix}</span>}
       {error && (
         <span

@@ -24,8 +24,9 @@ import { ColumnVisibilityMenu } from "./column-visibility-menu";
 import { StatusFilter } from "./status-filter";
 
 // Sticky-column widths (must match the <th>/<td> widths)
-const EDIT_COL_W = 76; // px — fits "👁 View"
-const COMPANY_COL_W = 160; // px
+const EDIT_COL_W = 76; // px — fits "👁 Edit"
+const COMPANY_COL_W = 180; // px
+const ROLE_COL_MAX_W = 280; // px — max width before role-title wraps
 
 export function PipelineTable({
   rows,
@@ -83,6 +84,7 @@ export function PipelineTable({
                 </th>
                 {headerGroup.headers.map((header) => {
                   const isCompany = header.column.id === "company";
+                  const isRole = header.column.id === "role";
                   return (
                     <th
                       key={header.id}
@@ -91,12 +93,14 @@ export function PipelineTable({
                         mobileHiddenSet.has(header.column.id) &&
                           "hidden md:table-cell",
                         isCompany &&
-                          "sticky z-20 bg-background border-r border-border"
+                          "sticky z-20 bg-background !border-r-2 !border-foreground/40"
                       )}
                       style={
                         isCompany
                           ? { left: EDIT_COL_W, minWidth: COMPANY_COL_W }
-                          : undefined
+                          : isRole
+                            ? { maxWidth: ROLE_COL_MAX_W }
+                            : undefined
                       }
                     >
                       {header.isPlaceholder
@@ -144,20 +148,26 @@ export function PipelineTable({
                   </td>
                   {row.getVisibleCells().map((cell) => {
                     const isCompany = cell.column.id === "company";
+                    const isRole = cell.column.id === "role";
+                    const allowWrap = isCompany || isRole;
                     return (
                       <td
                         key={cell.id}
                         className={cn(
-                          "px-3 py-2 align-middle whitespace-nowrap border-r border-border/40 last:border-r-0",
+                          "px-3 py-2 align-middle border-r border-border/40 last:border-r-0",
+                          !allowWrap && "whitespace-nowrap",
+                          allowWrap && "whitespace-normal break-words",
                           mobileHiddenSet.has(cell.column.id) &&
                             "hidden md:table-cell",
                           isCompany &&
-                            "sticky z-10 bg-background border-r border-border group-hover/row:bg-muted"
+                            "sticky z-10 bg-background !border-r-2 !border-foreground/40 group-hover/row:bg-muted"
                         )}
                         style={
                           isCompany
-                            ? { left: EDIT_COL_W, minWidth: COMPANY_COL_W }
-                            : undefined
+                            ? { left: EDIT_COL_W, minWidth: COMPANY_COL_W, maxWidth: COMPANY_COL_W }
+                            : isRole
+                              ? { maxWidth: ROLE_COL_MAX_W }
+                              : undefined
                         }
                       >
                         {flexRender(

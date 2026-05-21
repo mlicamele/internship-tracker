@@ -81,7 +81,9 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.company.name,
     header: SORT_HEADER("Company"),
     cell: ({ row }) => (
-      <span className="font-medium">{row.original.role.company.name}</span>
+      <span className="block h-7 overflow-y-auto whitespace-normal break-words font-medium leading-tight">
+        {row.original.role.company.name}
+      </span>
     ),
     enableHiding: false,
   },
@@ -90,10 +92,12 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.title,
     header: SORT_HEADER("Role"),
     cell: ({ row }) => (
-      <span className="inline-flex items-center">
+      <span className="inline-flex w-full items-start">
         <TableTextField
+          multiline
           value={row.original.role.title}
           onSave={(v) => updateRoleFieldAction(row.original.id, "title", v)}
+          className="w-full"
         />
         <RevertButton
           applicationId={row.original.id}
