@@ -71,7 +71,7 @@ export function PipelineTable({
       )}
 
       <div className="flex-1 overflow-auto rounded-md border border-border">
-        <table className="w-full text-sm">
+        <table className="w-full border-separate border-spacing-0 text-sm">
           <thead className="sticky top-0 z-30 bg-background shadow-[0_1px_0_0_var(--color-border)]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id} className="border-b border-border">
@@ -93,7 +93,7 @@ export function PipelineTable({
                         mobileHiddenSet.has(header.column.id) &&
                           "hidden md:table-cell",
                         isCompany &&
-                          "sticky z-20 bg-background !border-r-2 !border-foreground/40"
+                          "sticky z-20 bg-background shadow-[2px_0_0_0_var(--color-foreground)]"
                       )}
                       style={
                         isCompany
@@ -160,7 +160,7 @@ export function PipelineTable({
                           mobileHiddenSet.has(cell.column.id) &&
                             "hidden md:table-cell",
                           isCompany &&
-                            "sticky z-10 bg-background !border-r-2 !border-foreground/40 group-hover/row:bg-muted"
+                            "sticky z-10 bg-background shadow-[2px_0_0_0_var(--color-foreground)] group-hover/row:bg-muted"
                         )}
                         style={
                           isCompany

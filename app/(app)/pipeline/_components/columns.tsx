@@ -140,7 +140,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           max={2032}
           value={row.original.role.target_year ? String(row.original.role.target_year) : ""}
           onSave={(v) => updateRoleFieldAction(row.original.id, "target_year", v)}
-          inputClassName="w-14"
+          inputClassName="w-10 text-right"
           placeholder="—"
         />
         <RevertButton
@@ -249,7 +249,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           max={9999}
           prefix="$"
           suffix="/hr"
-          inputClassName="w-12"
+          inputClassName="w-10 text-right"
           value={
             row.original.role.compensation_hourly_dollars !== null
               ? String(row.original.role.compensation_hourly_dollars)
@@ -305,7 +305,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           min={2024}
           max={2034}
           placeholder="min"
-          inputClassName="w-12"
+          inputClassName="w-10 text-center"
           value={row.original.role.min_grad_year ? String(row.original.role.min_grad_year) : ""}
           onSave={(v) => updateRoleFieldAction(row.original.id, "min_grad_year", v)}
         />
@@ -320,7 +320,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           min={2024}
           max={2034}
           placeholder="max"
-          inputClassName="w-12"
+          inputClassName="w-10 text-center"
           value={row.original.role.max_grad_year ? String(row.original.role.max_grad_year) : ""}
           onSave={(v) => updateRoleFieldAction(row.original.id, "max_grad_year", v)}
         />
