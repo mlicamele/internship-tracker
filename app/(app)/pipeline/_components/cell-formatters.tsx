@@ -1,7 +1,8 @@
 import { cn } from "@/lib/utils";
 import type {
   ApplicationStatus,
-  ClassYearTag,
+  RelocationAssistance,
+  RoleLocation,
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
@@ -86,18 +87,26 @@ export function WorkModelCell({ model }: { model: WorkModel }) {
   return <Pill>{WORK_MODEL_LABEL[model]}</Pill>;
 }
 
-const CLASS_YEAR_LABEL: Record<ClassYearTag, string> = {
-  freshman_ok: "Fr+",
-  sophomore_ok: "So+",
-  junior_plus: "Jr+",
+export function formatMaxGradYear(year: number | null): React.ReactNode {
+  if (year === null) return <span className="text-muted-foreground">—</span>;
+  return <Pill>≤ {year}</Pill>;
+}
+
+const RELOCATION_LABEL: Record<RelocationAssistance, string> = {
+  provided: "Provided",
+  not_provided: "Not provided",
   unspecified: "—",
 };
 
-export function ClassYearCell({ tag }: { tag: ClassYearTag }) {
-  if (tag === "unspecified") {
+export function RelocationAssistanceCell({
+  value,
+}: {
+  value: RelocationAssistance;
+}) {
+  if (value === "unspecified") {
     return <span className="text-muted-foreground">—</span>;
   }
-  return <Pill>{CLASS_YEAR_LABEL[tag]}</Pill>;
+  return <Pill>{RELOCATION_LABEL[value]}</Pill>;
 }
 
 export function formatDate(iso: string | null): string {
@@ -119,14 +128,28 @@ export function formatDistance(miles: number | null): React.ReactNode {
   return `${Math.round(miles / 10) * 10} mi`;
 }
 
-export function formatCompensation(
-  text: string | null,
-  hourlyCents: number | null
+export function formatLocations(
+  locations: RoleLocation[]
 ): React.ReactNode {
-  if (text) return text;
-  if (hourlyCents) {
-    const dollars = (hourlyCents / 100).toFixed(2);
-    return `$${dollars}/hr`;
+  if (!locations || locations.length === 0) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  if (locations.length === 1) return locations[0].text;
+  return (
+    <span title={locations.map((l) => l.text).join(", ")}>
+      {locations[0].text}{" "}
+      <span className="text-muted-foreground">
+        +{locations.length - 1}
+      </span>
+    </span>
+  );
+}
+
+export function formatCompensation(
+  hourlyDollars: number | null
+): React.ReactNode {
+  if (hourlyDollars) {
+    return `$${hourlyDollars}/hr`;
   }
   return <span className="text-muted-foreground">—</span>;
 }

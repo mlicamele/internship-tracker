@@ -79,12 +79,15 @@ export async function fetchGreenhouseJob(
     if (!res.ok) return null;
     const job = (await res.json()) as GreenhouseJob;
 
-    const locations = (job.offices ?? [])
+    const officeNames = (job.offices ?? [])
       .map((o) => o.name)
       .filter((n): n is string => !!n);
-    const locationFromLocation = job.location?.name ?? null;
-    const locationText =
-      locations.length > 0 ? locations.join(" · ") : locationFromLocation;
+    const locationTexts =
+      officeNames.length > 0
+        ? officeNames
+        : job.location?.name
+          ? [job.location.name]
+          : [];
 
     const body = job.content ? decodeHtml(job.content) : "";
 
@@ -97,7 +100,7 @@ export async function fetchGreenhouseJob(
       source: "greenhouse_api",
       company: job.company_name ?? null,
       title: job.title ?? null,
-      location_text: locationText,
+      location_texts: locationTexts,
       jd_body: body,
       jd_url: job.absolute_url ?? null,
       posted_at: job.first_published ?? null,

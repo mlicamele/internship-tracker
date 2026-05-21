@@ -123,22 +123,27 @@ export function stripHtml(html: string | undefined): string {
     .trim();
 }
 
-/** Coerce JSON-LD location to a single readable string. */
-export function flattenLocation(
+/** Coerce JSON-LD location(s) into an array of readable strings. */
+export function flattenLocations(
   jobLocation: JobLocation | JobLocation[] | undefined
-): string | null {
-  if (!jobLocation) return null;
+): string[] {
+  if (!jobLocation) return [];
   const list = Array.isArray(jobLocation) ? jobLocation : [jobLocation];
-  const parts: string[] = [];
+  const out: string[] = [];
+  const seen = new Set<string>();
   for (const loc of list) {
     const a = loc.address;
     if (!a) continue;
     const pieces = [a.addressLocality, a.addressRegion, a.addressCountry].filter(
       Boolean
     );
-    if (pieces.length > 0) parts.push(pieces.join(", "));
+    if (pieces.length === 0) continue;
+    const joined = pieces.join(", ");
+    if (seen.has(joined)) continue;
+    seen.add(joined);
+    out.push(joined);
   }
-  return parts.length > 0 ? parts.join(" · ") : null;
+  return out;
 }
 
 /** Coerce hiringOrganization to a simple name string. */

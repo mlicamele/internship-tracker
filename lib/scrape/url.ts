@@ -15,7 +15,7 @@ import {
 } from "@/lib/llm/extract-job";
 import {
   extractJobLd,
-  flattenLocation,
+  flattenLocations,
   organizationName,
   stripHtml,
 } from "./jsonld";
@@ -23,6 +23,7 @@ import { identifyBoard } from "./identify";
 import { fetchGreenhouseJob } from "./boards/greenhouse-api";
 import { fetchLeverPosting } from "./boards/lever-api";
 import { fetchAshbyJob } from "./boards/ashby-api";
+import { fetchWorkdayJob } from "./boards/workday-api";
 import { fetchViaJinaReader } from "./reader";
 import { fetchViaCloudflareBrowser } from "./cf-browser";
 import type { EvidenceLayer } from "./types";
@@ -41,7 +42,7 @@ function emptyResult(url: string): ScrapeResult {
   return {
     company: null,
     title: null,
-    location_text: null,
+    locations: [],
     jd_body: "",
     jd_url: url,
     deadline_at: null,
@@ -49,10 +50,10 @@ function emptyResult(url: string): ScrapeResult {
     work_model: "unspecified",
     target_year: null,
     target_season: "summer",
-    class_year_tag: "unspecified",
-    class_year_confidence: 0,
-    compensation_text: null,
-    compensation_hourly_cents: null,
+    max_grad_year: null,
+    relocation_assistance: "unspecified",
+    compensation_hourly_dollars: null,
+    confidences: {},
     overall_confidence: 0,
     notes: "no evidence gathered",
     thin: true,
@@ -86,7 +87,7 @@ async function directFetchAndJsonLd(url: string): Promise<EvidenceLayer | null> 
         source: "jsonld",
         company: organizationName(jsonLd.hiringOrganization),
         title: jsonLd.title ?? null,
-        location_text: flattenLocation(jsonLd.jobLocation),
+        location_texts: flattenLocations(jsonLd.jobLocation),
         jd_body: body,
         jd_url:
           $('link[rel="canonical"]').attr("href") ||
@@ -106,7 +107,7 @@ async function directFetchAndJsonLd(url: string): Promise<EvidenceLayer | null> 
       source: "direct_fetch",
       company: null,
       title: $("title").first().text().trim() || null,
-      location_text: null,
+      location_texts: [],
       jd_body: body.slice(0, 15000),
       jd_url:
         $('link[rel="canonical"]').attr("href") ||
@@ -141,6 +142,20 @@ export async function scrapeUrl(
   } else if (board.kind === "ashby" && board.company && board.jobId) {
     const ev = await fetchAshbyJob(board.company, board.jobId);
     if (ev) evidence.push(ev);
+  } else if (
+    board.kind === "workday" &&
+    board.company &&
+    board.jobId &&
+    board.extras?.host &&
+    board.extras?.site
+  ) {
+    const ev = await fetchWorkdayJob(
+      board.extras.host,
+      board.company,
+      board.extras.site,
+      board.jobId
+    );
+    if (ev) evidence.push(ev);
   }
 
   // Layer 2: direct fetch + JSON-LD
@@ -167,6 +182,7 @@ export async function scrapeUrl(
 
   const mergedHints = mergeEvidence(evidence);
   const bestBody = pickBestBody(evidence, userPastedJd);
+  const compensationContext = extractCompensationContext(evidence, userPastedJd);
 
   const extracted = await extractJobFromEvidence({
     url,
@@ -175,18 +191,23 @@ export async function scrapeUrl(
     perBoardHints: {
       company: mergedHints.company,
       title: mergedHints.title,
-      location: mergedHints.location_text,
+      locations: mergedHints.location_texts,
       jd_body: bestBody,
     },
     userPastedJdBody: userPastedJd,
+    compensationContext,
   });
 
   // Fallback fill: when LLM left a field blank but evidence had it
+  const locations: ExtractedJob["locations"] =
+    extracted.locations.length > 0
+      ? extracted.locations
+      : mergedHints.location_texts.map((text) => ({ text }));
   const filled: ExtractedJob = {
     ...extracted,
     company: extracted.company ?? mergedHints.company ?? null,
     title: extracted.title ?? mergedHints.title ?? null,
-    location_text: extracted.location_text ?? mergedHints.location_text ?? null,
+    locations,
     jd_body: extracted.jd_body || bestBody,
     jd_url: extracted.jd_url ?? mergedHints.jd_url ?? url,
     posted_at: extracted.posted_at ?? mergedHints.posted_at ?? null,
@@ -195,8 +216,6 @@ export async function scrapeUrl(
       extracted.work_model === "unspecified" && mergedHints.work_model
         ? mergedHints.work_model
         : extracted.work_model,
-    compensation_text:
-      extracted.compensation_text ?? mergedHints.compensation_text ?? null,
   };
 
   return {
@@ -209,12 +228,11 @@ export async function scrapeUrl(
 interface MergedHints {
   company: string | null;
   title: string | null;
-  location_text: string | null;
+  location_texts: string[];
   jd_url: string | null;
   posted_at: string | null;
   deadline_at: string | null;
   work_model: EvidenceLayer["work_model"];
-  compensation_text: string | null;
   jsonLd: unknown;
   htmlExcerpt: string | undefined;
 }
@@ -223,6 +241,7 @@ const SOURCE_PRIORITY: EvidenceLayer["source"][] = [
   "greenhouse_api",
   "lever_api",
   "ashby_api",
+  "workday_api",
   "jsonld",
   "cf_browser",
   "jina_reader",
@@ -236,19 +255,20 @@ function mergeEvidence(layers: EvidenceLayer[]): MergedHints {
   const merged: MergedHints = {
     company: null,
     title: null,
-    location_text: null,
+    location_texts: [],
     jd_url: null,
     posted_at: null,
     deadline_at: null,
     work_model: undefined,
-    compensation_text: null,
     jsonLd: undefined,
     htmlExcerpt: undefined,
   };
   for (const layer of sorted) {
     merged.company ??= layer.company;
     merged.title ??= layer.title;
-    merged.location_text ??= layer.location_text;
+    if (merged.location_texts.length === 0 && layer.location_texts.length > 0) {
+      merged.location_texts = layer.location_texts;
+    }
     merged.jd_url ??= layer.jd_url;
     merged.posted_at ??= layer.posted_at ?? null;
     merged.deadline_at ??= layer.deadline_at ?? null;
@@ -259,7 +279,6 @@ function mergeEvidence(layers: EvidenceLayer[]): MergedHints {
     ) {
       merged.work_model = layer.work_model;
     }
-    merged.compensation_text ??= layer.compensation_text ?? null;
     if (!merged.jsonLd && layer.source === "jsonld" && layer.raw) {
       merged.jsonLd = layer.raw;
     }
@@ -268,6 +287,52 @@ function mergeEvidence(layers: EvidenceLayer[]): MergedHints {
     }
   }
   return merged;
+}
+
+/**
+ * Scan ALL evidence bodies (untruncated) for windows containing pay-related
+ * keywords. Pay disclosures (CA/NY/CO/WA pay transparency laws) often live in
+ * a footer at the bottom of the JD, which gets cut by htmlExcerpt/jd_body
+ * truncation. Returns concatenated ±300-char windows, or null if nothing
+ * matches. Cap total at 3000 chars to stay budget-friendly.
+ */
+function extractCompensationContext(
+  layers: EvidenceLayer[],
+  userPasted?: string
+): string | null {
+  const sources: string[] = [];
+  if (userPasted) sources.push(userPasted);
+  for (const layer of layers) {
+    if (layer.jd_body) sources.push(layer.jd_body);
+  }
+  const PAY_REGEX =
+    /(compensation|pay\s*range|salary|hourly|stipend|wage|hiring\s*range|base\s*pay|annualized|\$\s?\d{1,3}(?:[,.]\d{3})*(?:\.\d+)?(?:\s?[kK])?|\/\s?(?:hr|hour|year|yr|month|mo|week|wk))/g;
+  const WINDOW = 300;
+  const seen = new Set<string>();
+  const windows: string[] = [];
+  let total = 0;
+  const DOLLAR_FIGURE = /\$\s?\d/;
+  for (const body of sources) {
+    PAY_REGEX.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = PAY_REGEX.exec(body)) !== null) {
+      const start = Math.max(0, m.index - WINDOW);
+      const end = Math.min(body.length, m.index + m[0].length + WINDOW);
+      const snippet = body.slice(start, end).replace(/\s+/g, " ").trim();
+      if (snippet.length < 20) continue;
+      // Require an actual dollar figure inside the window — drops keyword-only
+      // false positives like "competitive salary and benefits" with no number.
+      if (!DOLLAR_FIGURE.test(snippet)) continue;
+      const key = snippet.slice(0, 80);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (total + snippet.length > 3000) break;
+      windows.push(snippet);
+      total += snippet.length;
+    }
+    if (total >= 3000) break;
+  }
+  return windows.length ? windows.join("\n---\n") : null;
 }
 
 function pickBestBody(layers: EvidenceLayer[], userPasted?: string): string {

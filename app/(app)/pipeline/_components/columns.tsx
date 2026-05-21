@@ -5,11 +5,13 @@ import type { ApplicationRow } from "@/lib/db/applications";
 import type { ApplicationStatus } from "@/lib/db/types";
 import { ArrowUpDown } from "@/components/icons";
 import {
-  ClassYearCell,
+  RelocationAssistanceCell,
   WorkModelCell,
   formatCompensation,
   formatDate,
   formatDistance,
+  formatLocations,
+  formatMaxGradYear,
   formatNextInterview,
   formatTargetTerm,
 } from "./cell-formatters";
@@ -89,12 +91,9 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
   },
   {
     id: "location",
-    accessorFn: (row) => row.role.location_text ?? "",
+    accessorFn: (row) => row.role.locations[0]?.text ?? "",
     header: SORT_HEADER("Location"),
-    cell: ({ row }) =>
-      row.original.role.location_text || (
-        <span className="text-muted-foreground">—</span>
-      ),
+    cell: ({ row }) => formatLocations(row.original.role.locations),
   },
   {
     id: "work_model",
@@ -104,13 +103,10 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
   },
   {
     id: "compensation",
-    accessorFn: (row) => row.role.compensation_hourly_cents ?? 0,
-    header: SORT_HEADER("Comp"),
+    accessorFn: (row) => row.role.compensation_hourly_dollars ?? 0,
+    header: SORT_HEADER("$/hr"),
     cell: ({ row }) =>
-      formatCompensation(
-        row.original.role.compensation_text,
-        row.original.role.compensation_hourly_cents
-      ),
+      formatCompensation(row.original.role.compensation_hourly_dollars),
   },
   {
     id: "distance",
@@ -130,10 +126,18 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     cell: ({ row }) => formatNextInterview(row.original.next_interview),
   },
   {
-    id: "class_year",
-    accessorFn: (row) => row.role.class_year_tag,
-    header: SORT_HEADER("Eligibility"),
-    cell: ({ row }) => <ClassYearCell tag={row.original.role.class_year_tag} />,
+    id: "max_grad_year",
+    accessorFn: (row) => row.role.max_grad_year ?? Number.POSITIVE_INFINITY,
+    header: SORT_HEADER("Grad ≤"),
+    cell: ({ row }) => formatMaxGradYear(row.original.role.max_grad_year),
+  },
+  {
+    id: "relocation_assistance",
+    accessorFn: (row) => row.role.relocation_assistance,
+    header: SORT_HEADER("Relocation"),
+    cell: ({ row }) => (
+      <RelocationAssistanceCell value={row.original.role.relocation_assistance} />
+    ),
   },
   {
     id: "resume",

@@ -1,12 +1,14 @@
-// Groq-backed job extractor (Llama 3.3 70B Versatile). Free tier on Groq
-// is generous (30 RPM, 14400/day) and the model is strong at structured
-// JSON extraction. No Google Cloud billing rabbit hole.
+// Groq-backed job extractor (Llama 4 Scout 17B MoE). MoE architecture
+// means only ~17B active params per token → Groq gives it ~50k TPM on
+// free tier (5× the 70B versatile cap), so a full harness run fits in
+// one minute without rate-limiting. Quality is comparable to 3.3 70B
+// for structured JSON extraction.
 //
 // Never throws — returns safe defaults on any error.
 
 import Groq from "groq-sdk";
 import type {
-  ClassYearTag,
+  RelocationAssistance,
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
@@ -14,7 +16,8 @@ import type {
 export interface ExtractedJob {
   company: string | null;
   title: string | null;
-  location_text: string | null;
+  /** All locations the role is listed for. Coords filled in later by the geocoder, not the LLM. */
+  locations: { text: string; lat?: number | null; lng?: number | null }[];
   jd_body: string;
   jd_url: string | null;
   deadline_at: string | null;
@@ -22,10 +25,13 @@ export interface ExtractedJob {
   work_model: WorkModel;
   target_year: number | null;
   target_season: TargetSeason;
-  class_year_tag: ClassYearTag;
-  class_year_confidence: number;
-  compensation_text: string | null;
-  compensation_hourly_cents: number | null;
+  /** Latest graduation year still eligible (e.g. 2029 = "must graduate by 2029"). Null if not stated. */
+  max_grad_year: number | null;
+  relocation_assistance: RelocationAssistance;
+  /** Hourly rate in whole dollars (e.g. 50 for $50/hr). Null if not stated or non-numeric. */
+  compensation_hourly_dollars: number | null;
+  /** Per-field confidence 0..1. Keys mirror the field names. Missing keys = no signal. */
+  confidences: Record<string, number>;
   overall_confidence: number;
   notes: string;
 }
@@ -33,7 +39,7 @@ export interface ExtractedJob {
 const SAFE_DEFAULT: ExtractedJob = {
   company: null,
   title: null,
-  location_text: null,
+  locations: [],
   jd_body: "",
   jd_url: null,
   deadline_at: null,
@@ -41,22 +47,17 @@ const SAFE_DEFAULT: ExtractedJob = {
   work_model: "unspecified",
   target_year: null,
   target_season: "summer",
-  class_year_tag: "unspecified",
-  class_year_confidence: 0,
-  compensation_text: null,
-  compensation_hourly_cents: null,
+  max_grad_year: null,
+  relocation_assistance: "unspecified",
+  compensation_hourly_dollars: null,
+  confidences: {},
   overall_confidence: 0,
   notes: "extraction failed",
 };
 
-const CLASS_YEAR_VALUES = new Set([
-  "freshman_ok",
-  "sophomore_ok",
-  "junior_plus",
-  "unspecified",
-]);
 const TARGET_SEASON_VALUES = new Set(["summer", "fall", "winter", "spring"]);
 const WORK_MODEL_VALUES = new Set(["remote", "hybrid", "onsite", "unspecified"]);
+const RELOCATION_VALUES = new Set(["provided", "not_provided", "unspecified"]);
 
 const SYSTEM_PROMPT = `You extract structured fields from a job/internship posting for an undergrad applicant.
 
@@ -67,17 +68,29 @@ OUTPUT STRICT JSON ONLY — no markdown, no prose, no code fence. Match this exa
 {
   "company": string | null,
   "title": string | null,
-  "location_text": string | null,
+  "locations": string[],                   // array of distinct locations the role is listed for
   "jd_body": string,
   "deadline_at": string | null,           // ISO 8601 like "2026-06-15T00:00:00Z"
   "posted_at": string | null,             // ISO 8601
   "work_model": "remote" | "hybrid" | "onsite" | "unspecified",
   "target_year": integer | null,           // e.g. 2027
   "target_season": "summer" | "fall" | "winter" | "spring",
-  "class_year_tag": "freshman_ok" | "sophomore_ok" | "junior_plus" | "unspecified",
-  "class_year_confidence": number,         // 0.0 - 1.0
-  "compensation_text": string | null,      // verbatim like "$50/hr + housing"
-  "compensation_hourly_cents": integer | null,
+  "max_grad_year": integer | null,         // latest grad year still eligible; null if open / unstated
+  "relocation_assistance": "provided" | "not_provided" | "unspecified",
+  "compensation_hourly_dollars": integer | null,
+  "confidences": {                         // per-field 0.0-1.0 confidence. Omit a key entirely if no signal at all (don't set to 0).
+    "company": number,
+    "title": number,
+    "locations": number,
+    "deadline_at": number,
+    "posted_at": number,
+    "work_model": number,
+    "target_year": number,
+    "target_season": number,
+    "max_grad_year": number,
+    "relocation_assistance": number,
+    "compensation_hourly_dollars": number
+  },
   "overall_confidence": number,            // 0.0 - 1.0
   "notes": string                          // 1 sentence internal-only summary
 }
@@ -85,14 +98,68 @@ OUTPUT STRICT JSON ONLY — no markdown, no prose, no code fence. Match this exa
 Rules:
 - company: hiring organization name. Prefer JSON-LD hiringOrganization.name. Capitalize properly ("anthropic" → "Anthropic"). NOT the job board name.
 - title: role title only, no company prefix. "Software Engineer Intern" not "Anthropic - SWE Intern".
-- location_text: brief human-readable. "Remote", "San Francisco, CA", "Remote · NYC" for hybrid.
+- locations: ARRAY of distinct locations the role is listed for. Each item is a short readable string like "San Francisco, CA" or "London, UK" or "Remote". When a JD lists multiple cities (common for quant roles, big tech multi-office postings), include each as a separate array element — do NOT join them with semicolons or " · ". Order does not matter. If the role is remote, use ["Remote"]. If location is unknown, use an empty array [].
 - jd_body: clean plain text. Strip HTML. Preserve paragraphs + bullets. Empty string if unknown.
-- class_year_tag: who CAN apply (not company preference). "rising junior" or "must be junior" → junior_plus. "open to all class years" → freshman_ok. Unstated → unspecified.
+- max_grad_year: STRICT. The LATEST graduation year (e.g. 2029) that still makes a candidate eligible. Look for two kinds of phrasing — both count as explicit:
+    A) Direct graduation-year language. Map literally:
+       * "Must be graduating in 2027 or 2028" → 2028
+       * "Graduating by Spring 2029" → 2029
+       * "Open to candidates graduating between 2027 and 2030" → 2030
+       * "Class of 2028 or 2029" → 2029
+       * "Anticipated graduation: May 2028 or later" → null (no upper bound stated)
+       * "Must graduate no later than December 2028" → 2028
+    B) Class-year language combined with the internship's target_year. Convert with this rule:
+       Rising-class label refers to the year AFTER the summer internship runs. For target_year=Y:
+         - "rising junior" / "junior+" / "must be a junior or above" → max_grad_year = Y + 2
+         - "rising sophomore" / "sophomore+" → max_grad_year = Y + 3
+         - "rising senior" / "senior only" → max_grad_year = Y + 1
+         - "open to all undergraduate years" / "freshman+" / "any class year" → null (open)
+       Example (target_year=2027): "Rising junior+ for Summer 2027" → max_grad_year = 2029.
+       Example (target_year=2027): "Rising senior only" → max_grad_year = 2028.
+    DO NOT INFER from weak context like "Summer 2027 Intern" alone, "CS student", "undergraduate" alone, or job seniority. If the JD doesn't explicitly state eligibility via grad year OR class year, return null with confidence 0. Prefer null over a guess.
+- confidences: emit a per-field confidence for EVERY field you populated with a non-null/non-default value. Calibration:
+    * 0.95+: pulled directly from a clearly-labeled JSON-LD / structured field
+    * 0.80-0.94: explicitly stated in the JD prose with unambiguous wording
+    * 0.60-0.79: stated but with some ambiguity (e.g. multiple candidate values, geo-specific pay range)
+    * 0.40-0.59: weak inference (e.g. work_model="onsite" because location is a city and no remote language mentioned)
+    * < 0.40: don't include the field — return null/default instead
+  If a field is null, default, or "unspecified", OMIT its key from the confidences object entirely. Do NOT emit 0 for missing fields.
+- relocation_assistance: does the company SUPPORT the candidate moving for the role?
+    * "Relocation assistance provided" / "we will help you relocate" / "housing stipend" / "corporate housing" / "relocation reimbursement" / "visa sponsorship for relocation" → "provided"
+    * "Local candidates only" / "no relocation assistance" / "must already reside in X" → "not_provided"
+    * Remote roles where no relocation is needed → "unspecified" (it's irrelevant, not "not_provided")
+    * If not mentioned → "unspecified"
 - target_year: year the internship runs. "Summer 2027 SWE Intern" → 2027. Null if unstated.
 - target_season: "summer" default (most common). Only other if explicit.
 - work_model: "remote" only if explicitly stated remote (NOT "no remote"). "hybrid" for mixed. "onsite" / "in-office" otherwise. "unspecified" if not mentioned.
 - deadline_at / posted_at: ISO 8601 string. Only date → "YYYY-MM-DDT00:00:00Z". Unknown → null.
-- compensation_text: verbatim if present. compensation_hourly_cents: hourly cents equivalent. "$50/hr" → 5000. "$8000/mo" ≈ 4615 (8000*100/173.33). "$80k/yr" ≈ 3846 (80000*100/2080).
+- compensation_hourly_dollars: whole-dollar hourly rate as an integer. SOURCE RULE: if a "Compensation context" section is provided, use ONLY that section as your source for compensation — do NOT pull dollar figures from the jd_body, htmlExcerpt, or anywhere else. The comp-context windows were extracted specifically because they contain pay-keywords + dollar figures; numbers elsewhere in the page (revenue figures, customer counts, "22+ million customers", market sizes, AUM, etc.) are NOT compensation. If NO Compensation context is provided, then you may fall back to scanning the JD body for explicit pay statements.
+  VERIFY relevance: within the Compensation context, check each figure refers to THIS role, not a different one. Same-page sidebars, "Related Openings", "Other Programs", "PEAK6 Trials", residency/founder/fellowship listings, or any pay number tied to a DIFFERENT job title than the one we're extracting → IGNORE. If the context is ambiguous or you can't tell which role the pay applies to, return null.
+
+  PRIORITY when multiple comp figures are present (common — Amazon, Salesforce, etc. list both hourly AND annual ranges):
+    1. EXPLICIT PER-HOUR RATE WINS — ALWAYS. If the JD anywhere contains "$X/hour", "$X per hour", "$X-Y/hr", "$X.XX/hr", or similar per-hour figure, use that directly. Do NOT fall back to an annual figure even if both are present. Per-hour beats per-year, every time.
+    2. RANGES → MIDPOINT, ALWAYS. Any range ("$X-Y", "$X to Y", "$X–Y") MUST be resolved to the integer midpoint, rounded. Examples: "$19.00-$75.00/hr" → 47. "$0-$50/hr" → 25. "$45-55/hour" → 50. "$90,000-$110,000 annualized" → 48 ($100k/2080). Never pick the low end, never pick the high end, never decline a range just because it's wide.
+    3. Else, if the JD EXPLICITLY frames the figure as a TOTAL for the program duration — e.g. "$71,000 for the 8-week internship", "$45,000 total stipend for the 10-week program", "interns are paid $X over the summer", "total compensation for the program is $X" — divide that total by (program_weeks × 40). The program duration MUST be stated in the JD or comp context. If duration is stated but unclear (e.g. "summer internship" with no week count), default to 10 weeks. This is common at quant firms (Bridgewater, Citadel, Jane Street, HRT) where the total summer pay IS the headline number.
+    4. Else, treat any bare dollar figure as ANNUALIZED → divide by 2080. Most non-quant internship JDs quote the annualized rate (the rate of pay during the internship, as if for a full year), NOT the summer-total payment. "$95,000" or "$80k" or "Pay range: $90k–$110k" without total-framing → divide by 2080.
+
+  Examples:
+    * "$50/hr" → 50
+    * "$22.50/hour" → 23 (round to nearest dollar)
+    * "$45-55/hr" → 50 (midpoint)
+    * "$8000/mo" → 46 (8000 / 173.33)
+    * "$80k/yr" or "$80,000/year" → 38 (80000 / 2080)
+    * "$71,000" (bare, no qualifier) → 34 (assume annualized: 71000 / 2080)
+    * "Annualized: $80,000" → 38
+    * "Pay range: $90,000–$110,000 USD" → 48 (midpoint 100000 / 2080, annualized)
+    * "Hiring range: $45/hour to $55/hour" → 50
+    * "Pacific time zone pay range: $100,000 - $130,000" → 55 (geo-specific range, annualized midpoint)
+    * "Base salary: $95k. Total comp: $130k" → 46 (use BASE annualized only)
+    * "Pay rate: $30 per hour" → 30
+    * "TOTAL stipend of $24,000 for the 10-week summer program" → 60 (explicit total: 24000 / (10*40))
+    * "$71,000 for the 8-week internship" → 222 (explicit total wording: 71000 / (8*40))
+    * "Exceptionally high compensation" → null (no numeric value)
+    * "Competitive" → null
+    * Compensation not mentioned → null
 - confidence: be honest. Null/unspecified fields should lower overall_confidence.
 - notes: 1 short sentence for debugging.
 
@@ -105,15 +172,17 @@ export interface ExtractJobInput {
   perBoardHints?: {
     company?: string | null;
     title?: string | null;
-    location?: string | null;
+    locations?: string[];
     jd_body?: string;
   };
   userPastedJdBody?: string;
+  /** Untruncated windows around pay-keyword matches from the full body. Use this as the AUTHORITATIVE comp source. */
+  compensationContext?: string | null;
 }
 
 const MAX_HTML_CHARS = 12000;
 const MAX_BODY_CHARS = 8000;
-const MODEL = "llama-3.3-70b-versatile";
+const MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 let _client: Groq | null = null;
 function client(): Groq {
@@ -147,10 +216,24 @@ export async function extractJobFromEvidence(
     );
   }
 
+  if (input.compensationContext) {
+    sections.push(
+      `Compensation context (pulled from FULL JD body around pay keywords — USE THIS for compensation_hourly_dollars; it may contain pay-disclosure text that was truncated elsewhere):\n${input.compensationContext}`
+    );
+  }
+
   if (input.perBoardHints) {
     const hints = Object.entries(input.perBoardHints)
-      .filter(([, v]) => v !== null && v !== undefined && v !== "")
-      .map(([k, v]) => `  ${k}: ${typeof v === "string" ? v.slice(0, 500) : v}`)
+      .filter(([, v]) => {
+        if (v === null || v === undefined || v === "") return false;
+        if (Array.isArray(v) && v.length === 0) return false;
+        return true;
+      })
+      .map(([k, v]) => {
+        if (typeof v === "string") return `  ${k}: ${v.slice(0, 500)}`;
+        if (Array.isArray(v)) return `  ${k}: ${v.join(" | ")}`;
+        return `  ${k}: ${v}`;
+      })
       .join("\n");
     if (hints) sections.push(`Per-board parser hints:\n${hints}`);
   }
@@ -198,10 +281,7 @@ export async function extractJobFromEvidence(
         typeof parsed.company === "string" ? parsed.company.trim() || null : null,
       title:
         typeof parsed.title === "string" ? parsed.title.trim() || null : null,
-      location_text:
-        typeof parsed.location_text === "string"
-          ? parsed.location_text.trim() || null
-          : null,
+      locations: parseLocations(parsed.locations),
       jd_body: typeof parsed.jd_body === "string" ? parsed.jd_body : "",
       jd_url: input.url,
       deadline_at: parseIsoDate(parsed.deadline_at),
@@ -213,20 +293,19 @@ export async function extractJobFromEvidence(
       target_season: TARGET_SEASON_VALUES.has(parsed.target_season as string)
         ? (parsed.target_season as TargetSeason)
         : "summer",
-      class_year_tag: CLASS_YEAR_VALUES.has(parsed.class_year_tag as string)
-        ? (parsed.class_year_tag as ClassYearTag)
+      max_grad_year: parseGradYear(parsed.max_grad_year),
+      relocation_assistance: RELOCATION_VALUES.has(
+        parsed.relocation_assistance as string
+      )
+        ? (parsed.relocation_assistance as RelocationAssistance)
         : "unspecified",
-      class_year_confidence: parseConfidence(parsed.class_year_confidence),
-      compensation_text:
-        typeof parsed.compensation_text === "string"
-          ? parsed.compensation_text.trim() || null
+      compensation_hourly_dollars:
+        typeof parsed.compensation_hourly_dollars === "number" &&
+        Number.isFinite(parsed.compensation_hourly_dollars) &&
+        parsed.compensation_hourly_dollars > 0
+          ? Math.round(parsed.compensation_hourly_dollars)
           : null,
-      compensation_hourly_cents:
-        typeof parsed.compensation_hourly_cents === "number" &&
-        Number.isFinite(parsed.compensation_hourly_cents) &&
-        parsed.compensation_hourly_cents > 0
-          ? Math.round(parsed.compensation_hourly_cents)
-          : null,
+      confidences: parseConfidencesMap(parsed.confidences),
       overall_confidence: parseConfidence(parsed.overall_confidence),
       notes: typeof parsed.notes === "string" ? parsed.notes : "",
     };
@@ -237,6 +316,22 @@ export async function extractJobFromEvidence(
       notes: err instanceof Error ? err.message : "extract error",
     };
   }
+}
+
+function parseLocations(v: unknown): ExtractedJob["locations"] {
+  if (!Array.isArray(v)) return [];
+  const out: ExtractedJob["locations"] = [];
+  const seen = new Set<string>();
+  for (const item of v) {
+    if (typeof item !== "string") continue;
+    const text = item.trim();
+    if (!text) continue;
+    const key = text.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push({ text });
+  }
+  return out;
 }
 
 function parseIsoDate(v: unknown): string | null {
@@ -252,7 +347,25 @@ function parseTargetYear(v: unknown): number | null {
   return v;
 }
 
+function parseGradYear(v: unknown): number | null {
+  if (typeof v !== "number") return null;
+  if (!Number.isInteger(v) || v < 2024 || v > 2034) return null;
+  return v;
+}
+
 function parseConfidence(v: unknown): number {
   if (typeof v !== "number" || !Number.isFinite(v)) return 0;
   return Math.max(0, Math.min(1, v));
+}
+
+function parseConfidencesMap(v: unknown): Record<string, number> {
+  if (!v || typeof v !== "object") return {};
+  const out: Record<string, number> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (typeof val !== "number" || !Number.isFinite(val)) continue;
+    const clamped = Math.max(0, Math.min(1, val));
+    if (clamped <= 0) continue; // omit zero / negative; absence = no signal
+    out[k] = clamped;
+  }
+  return out;
 }

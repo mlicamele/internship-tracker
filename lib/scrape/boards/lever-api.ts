@@ -76,10 +76,12 @@ export async function fetchLeverPosting(
     else if (job.additional) parts.push("\n" + stripHtml(job.additional));
     const body = parts.join("\n").trim();
 
-    const locations =
+    const locationTexts =
       job.categories?.allLocations && job.categories.allLocations.length > 0
-        ? job.categories.allLocations.join(" · ")
-        : job.categories?.location ?? null;
+        ? job.categories.allLocations
+        : job.categories?.location
+          ? [job.categories.location]
+          : [];
 
     const workModel = job.workplaceType
       ? job.workplaceType.toLowerCase().includes("remote")
@@ -97,7 +99,7 @@ export async function fetchLeverPosting(
       source: "lever_api",
       company: null, // Lever API doesn't return company name; we'll let URL/path infer
       title: job.text ?? null,
-      location_text: locations,
+      location_texts: locationTexts,
       jd_body: body,
       jd_url: job.hostedUrl ?? null,
       posted_at: job.createdAt ? new Date(job.createdAt).toISOString() : null,

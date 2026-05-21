@@ -48,7 +48,7 @@ export async function fetchViaJinaReader(
       source: "jina_reader",
       company: null,
       title,
-      location_text: null,
+      location_texts: [],
       jd_body: body,
       jd_url: jdUrl,
       raw: { markdown_chars: markdown.length },

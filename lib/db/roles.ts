@@ -2,8 +2,9 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
-  ClassYearTag,
+  RelocationAssistance,
   Role,
+  RoleLocation,
   RoleSource,
   TargetSeason,
   WorkModel,
@@ -12,28 +13,26 @@ import type {
 export interface CreateRoleInput {
   companyId: string;
   title: string;
-  locationText?: string | null;
-  roleLat?: number | null;
-  roleLng?: number | null;
+  locations?: RoleLocation[];
   jdUrl?: string | null;
   jdBodyText?: string | null;
   deadlineAt?: string | null;
   postedAt?: string | null;
-  classYearTag?: ClassYearTag;
-  classYearConfidence?: number | null;
+  maxGradYear?: number | null;
+  relocationAssistance?: RelocationAssistance;
   source: RoleSource;
   sourceExternalId?: string | null;
   targetYear?: number | null;
   targetSeason?: TargetSeason;
   workModel?: WorkModel;
-  compensationText?: string | null;
-  compensationHourlyCents?: number | null;
+  compensationHourlyDollars?: number | null;
+  extractionConfidences?: Record<string, number>;
 }
 
 const ROLE_INSERT_DEFAULTS = {
   target_season: "summer" as TargetSeason,
   work_model: "unspecified" as WorkModel,
-  class_year_tag: "unspecified" as ClassYearTag,
+  relocation_assistance: "unspecified" as RelocationAssistance,
 };
 
 export async function create(
@@ -45,23 +44,22 @@ export async function create(
     .insert({
       company_id: input.companyId,
       title: input.title,
-      location_text: input.locationText ?? null,
-      role_lat: input.roleLat ?? null,
-      role_lng: input.roleLng ?? null,
+      locations: input.locations ?? [],
       jd_url: input.jdUrl ?? null,
       jd_body_text: input.jdBodyText ?? null,
       jd_snapshot_at: input.jdBodyText ? new Date().toISOString() : null,
       deadline_at: input.deadlineAt ?? null,
       posted_at: input.postedAt ?? null,
-      class_year_tag: input.classYearTag ?? ROLE_INSERT_DEFAULTS.class_year_tag,
-      class_year_confidence: input.classYearConfidence ?? null,
+      max_grad_year: input.maxGradYear ?? null,
+      relocation_assistance:
+        input.relocationAssistance ?? ROLE_INSERT_DEFAULTS.relocation_assistance,
       source: input.source,
       source_external_id: input.sourceExternalId ?? null,
       target_year: input.targetYear ?? null,
       target_season: input.targetSeason ?? ROLE_INSERT_DEFAULTS.target_season,
       work_model: input.workModel ?? ROLE_INSERT_DEFAULTS.work_model,
-      compensation_text: input.compensationText ?? null,
-      compensation_hourly_cents: input.compensationHourlyCents ?? null,
+      compensation_hourly_dollars: input.compensationHourlyDollars ?? null,
+      extraction_confidences: input.extractionConfidences ?? {},
     })
     .select("*")
     .single();
@@ -71,20 +69,18 @@ export async function create(
 
 export type RoleUpdate = Partial<{
   title: string;
-  location_text: string | null;
-  role_lat: number | null;
-  role_lng: number | null;
+  locations: RoleLocation[];
   jd_url: string | null;
   jd_body_text: string | null;
   deadline_at: string | null;
   posted_at: string | null;
-  class_year_tag: ClassYearTag;
-  class_year_confidence: number | null;
+  max_grad_year: number | null;
+  relocation_assistance: RelocationAssistance;
   target_year: number | null;
   target_season: TargetSeason;
   work_model: WorkModel;
-  compensation_text: string | null;
-  compensation_hourly_cents: number | null;
+  compensation_hourly_dollars: number | null;
+  extraction_confidences: Record<string, number>;
 }>;
 
 export async function updateRole(
@@ -138,9 +134,7 @@ export async function upsertBySourceId(
       .from("roles")
       .update({
         title: input.title,
-        location_text: input.locationText ?? null,
-        role_lat: input.roleLat ?? null,
-        role_lng: input.roleLng ?? null,
+        locations: input.locations ?? [],
         jd_url: input.jdUrl ?? existing.jd_url,
         jd_body_text: input.jdBodyText ?? existing.jd_body_text,
         deadline_at: input.deadlineAt ?? existing.deadline_at,

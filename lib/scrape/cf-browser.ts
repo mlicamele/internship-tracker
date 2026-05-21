@@ -40,7 +40,7 @@ export async function fetchViaCloudflareBrowser(
       source: "cf_browser",
       company: null,
       title: data.title ?? null,
-      location_text: null,
+      location_texts: [],
       jd_body: body,
       jd_url: data.url ?? null,
       raw: { html_chars: data.html?.length ?? 0 },

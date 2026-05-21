@@ -12,11 +12,11 @@ import * as interviewsDb from "@/lib/db/interviews";
 import * as companyNotesDb from "@/lib/db/company_notes";
 import { renameCompany } from "@/lib/db/companies";
 import { updateRole, type RoleUpdate } from "@/lib/db/roles";
-import { parseCompensation } from "@/lib/comp/parse";
 import { geocode } from "@/lib/geocode";
 import type {
-  ClassYearTag,
   InterviewType,
+  RelocationAssistance,
+  RoleLocation,
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
@@ -31,10 +31,9 @@ const INTERVIEW_TYPES: ReadonlySet<InterviewType> = new Set([
   "other",
 ]);
 
-const CLASS_YEAR_VALUES: ReadonlySet<ClassYearTag> = new Set([
-  "freshman_ok",
-  "sophomore_ok",
-  "junior_plus",
+const RELOCATION_VALUES: ReadonlySet<RelocationAssistance> = new Set([
+  "provided",
+  "not_provided",
   "unspecified",
 ]);
 
@@ -168,14 +167,15 @@ export async function deleteApplicationAction(applicationId: string) {
 
 export type RoleEditableField =
   | "title"
-  | "location_text"
+  | "locations"
   | "deadline_at"
   | "posted_at"
-  | "class_year_tag"
+  | "max_grad_year"
+  | "relocation_assistance"
   | "target_year"
   | "target_season"
   | "work_model"
-  | "compensation_text";
+  | "compensation_hourly_dollars";
 
 export type InlineEditResult =
   | { ok: true }
@@ -207,22 +207,33 @@ export async function updateRoleFieldAction(
       patch.title = v;
       break;
     }
-    case "location_text": {
-      const v = emptyToNull(rawValue ?? "");
-      patch.location_text = v;
-      if (v) {
+    case "locations": {
+      // Accept newline- or comma-separated input from the editor
+      const raw = rawValue ?? "";
+      const items = raw
+        .split(/[\n,;]/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      const seen = new Set<string>();
+      const next: RoleLocation[] = [];
+      for (const text of items) {
+        const key = text.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        let lat: number | null = null;
+        let lng: number | null = null;
         try {
-          const coords = await geocode(v);
-          patch.role_lat = coords?.lat ?? null;
-          patch.role_lng = coords?.lng ?? null;
+          const coords = await geocode(text);
+          if (coords) {
+            lat = coords.lat;
+            lng = coords.lng;
+          }
         } catch {
-          patch.role_lat = null;
-          patch.role_lng = null;
+          // ignore — leave coords null
         }
-      } else {
-        patch.role_lat = null;
-        patch.role_lng = null;
+        next.push({ text, lat, lng });
       }
+      patch.locations = next;
       break;
     }
     case "deadline_at": {
@@ -233,14 +244,25 @@ export async function updateRoleFieldAction(
       patch.posted_at = dateInputToIso(emptyToNull(rawValue ?? ""));
       break;
     }
-    case "class_year_tag": {
-      const v = (rawValue ?? "unspecified") as ClassYearTag;
-      if (!CLASS_YEAR_VALUES.has(v)) {
-        return { ok: false, error: "Invalid class year" };
+    case "max_grad_year": {
+      const v = emptyToNull(rawValue ?? "");
+      if (v === null) {
+        patch.max_grad_year = null;
+      } else {
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 2024 || n > 2034) {
+          return { ok: false, error: "Grad year must be 2024–2034" };
+        }
+        patch.max_grad_year = n;
       }
-      patch.class_year_tag = v;
-      // Manual edits clear confidence (no longer auto-detected)
-      patch.class_year_confidence = null;
+      break;
+    }
+    case "relocation_assistance": {
+      const v = (rawValue ?? "unspecified") as RelocationAssistance;
+      if (!RELOCATION_VALUES.has(v)) {
+        return { ok: false, error: "Invalid relocation value" };
+      }
+      patch.relocation_assistance = v;
       break;
     }
     case "target_year": {
@@ -272,17 +294,28 @@ export async function updateRoleFieldAction(
       patch.work_model = v;
       break;
     }
-    case "compensation_text": {
+    case "compensation_hourly_dollars": {
       const v = emptyToNull(rawValue ?? "");
-      patch.compensation_text = v;
-      if (v) {
-        const parsed = parseCompensation(v);
-        patch.compensation_hourly_cents = parsed.hourlyCents;
+      if (v === null) {
+        patch.compensation_hourly_dollars = null;
       } else {
-        patch.compensation_hourly_cents = null;
+        const n = Number(v);
+        if (!Number.isFinite(n) || n < 0 || n > 9999) {
+          return { ok: false, error: "Enter dollars per hour (0–9999)" };
+        }
+        patch.compensation_hourly_dollars = Math.round(n);
       }
       break;
     }
+  }
+
+  // Manual edit invalidates the LLM's confidence for this field — strip the key.
+  const currentConfidences =
+    (application.role.extraction_confidences as Record<string, number> | undefined) ?? {};
+  if (field in currentConfidences) {
+    const next = { ...currentConfidences };
+    delete next[field];
+    patch.extraction_confidences = next;
   }
 
   try {

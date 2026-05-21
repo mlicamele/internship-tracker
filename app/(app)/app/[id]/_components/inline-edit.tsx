@@ -28,7 +28,7 @@ interface InlineEditProps<T> {
     setDraft: (v: T) => void;
     commit: () => void;
     cancel: () => void;
-    inputRef: React.MutableRefObject<HTMLInputElement | HTMLSelectElement | null>;
+    inputRef: React.MutableRefObject<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null>;
   }) => ReactNode;
   /** Server action wrapper. Resolves with success or returns error string. */
   onSave: (next: T) => Promise<{ ok: true } | { ok: false; error: string }>;
@@ -51,7 +51,7 @@ export function InlineEdit<T>({
   const [error, setError] = useState<string | null>(null);
   const [savedFlash, setSavedFlash] = useState(false);
   const [pending, startTransition] = useTransition();
-  const inputRef = useRef<HTMLInputElement | HTMLSelectElement | null>(null);
+  const inputRef = useRef<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement | null>(null);
 
   // Autofocus on enter-edit
   useEffect(() => {

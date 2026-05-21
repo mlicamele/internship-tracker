@@ -78,7 +78,7 @@ export async function fetchAshbyJob(
       source: "ashby_api",
       company: null, // Ashby API doesn't return company name in job; comes from path
       title: job.title ?? null,
-      location_text: job.location ?? null,
+      location_texts: job.location ? [job.location] : [],
       jd_body: body,
       jd_url: job.jobUrl ?? null,
       posted_at: job.publishedAt ?? null,

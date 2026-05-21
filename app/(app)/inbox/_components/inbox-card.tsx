@@ -5,11 +5,13 @@ import { useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import {
-  ClassYearCell,
+  RelocationAssistanceCell,
   WorkModelCell,
   formatCompensation,
   formatDate,
   formatDistance,
+  formatLocations,
+  formatMaxGradYear,
   formatTargetTerm,
 } from "@/app/(app)/pipeline/_components/cell-formatters";
 import type { PipelineRow } from "@/app/(app)/pipeline/_components/columns";
@@ -66,18 +68,17 @@ export function InboxCard({ row }: { row: PipelineRow }) {
           {formatTargetTerm(r.target_year, r.target_season)}
         </Stat>
         <Stat label="Deadline">{formatDate(r.deadline_at)}</Stat>
-        <Stat label="Location">
-          {r.location_text ?? <span className="text-muted-foreground">—</span>}
-        </Stat>
+        <Stat label="Location">{formatLocations(r.locations)}</Stat>
         <Stat label="Distance">{formatDistance(row.distance_miles)}</Stat>
         <Stat label="Mode">
           <WorkModelCell model={r.work_model} />
         </Stat>
-        <Stat label="Eligibility">
-          <ClassYearCell tag={r.class_year_tag} />
+        <Stat label="Grad ≤">{formatMaxGradYear(r.max_grad_year)}</Stat>
+        <Stat label="Relocation">
+          <RelocationAssistanceCell value={r.relocation_assistance} />
         </Stat>
-        <Stat label="Compensation">
-          {formatCompensation(r.compensation_text, r.compensation_hourly_cents)}
+        <Stat label="$/hr">
+          {formatCompensation(r.compensation_hourly_dollars)}
         </Stat>
       </div>
 

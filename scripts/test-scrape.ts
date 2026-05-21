@@ -10,8 +10,29 @@
  */
 
 import { config as dotenvConfig } from "dotenv";
-import { readFileSync } from "fs";
+import { readFileSync, writeFileSync, createWriteStream } from "fs";
 import { resolve } from "path";
+
+// Tee stdout + stderr to scripts/test-output.txt (overwritten each run).
+// Strips ANSI color codes from the file copy. We only patch the low-level
+// write functions — console.log routes through stdout.write automatically,
+// so this captures everything without double-printing.
+const OUTPUT_FILE = resolve(process.cwd(), "scripts/test-output.txt");
+writeFileSync(OUTPUT_FILE, "");
+const fileStream = createWriteStream(OUTPUT_FILE, { flags: "a" });
+const ANSI = /\x1b\[[0-9;]*m/g;
+function teeWrite(stream: NodeJS.WriteStream) {
+  const orig = stream.write.bind(stream);
+  stream.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    const text =
+      typeof chunk === "string" ? chunk : chunk instanceof Uint8Array ? Buffer.from(chunk).toString() : "";
+    if (text) fileStream.write(text.replace(ANSI, ""));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return orig(chunk as any, ...(rest as any));
+  }) as typeof stream.write;
+}
+teeWrite(process.stdout);
+teeWrite(process.stderr);
 
 // Load .env.local (which is what Next.js uses)
 dotenvConfig({ path: resolve(process.cwd(), ".env.local") });
@@ -45,15 +66,15 @@ async function main() {
   const fieldKeys = [
     "company",
     "title",
-    "location_text",
+    "locations",
     "work_model",
     "target_year",
     "target_season",
-    "class_year_tag",
+    "max_grad_year",
+    "relocation_assistance",
     "deadline_at",
     "posted_at",
-    "compensation_text",
-    "compensation_hourly_cents",
+    "compensation_hourly_dollars",
   ] as const;
 
   type Row = {
@@ -72,10 +93,7 @@ async function main() {
       const extracted = await scrapeUrl(url);
       const duration_ms = Date.now() - t0;
       results.push({ url, extracted, duration_ms });
-      const filled = fieldKeys.filter((k) => {
-        const v = extracted[k];
-        return v !== null && v !== undefined && v !== "" && v !== "unspecified";
-      }).length;
+      const filled = fieldKeys.filter((k) => isFieldFilled(extracted[k])).length;
       const pct = Math.round((filled / fieldKeys.length) * 100);
       const tag =
         pct >= 80 ? "\x1b[32m✓\x1b[0m" :
@@ -91,10 +109,7 @@ async function main() {
   // Per-field summary
   console.log("\nField coverage across all URLs:");
   for (const k of fieldKeys) {
-    const filled = results.filter((r) => {
-      const v = r.extracted[k];
-      return v !== null && v !== undefined && v !== "" && v !== "unspecified";
-    }).length;
+    const filled = results.filter((r) => isFieldFilled(r.extracted[k])).length;
     const pct = Math.round((filled / results.length) * 100);
     const bar = "█".repeat(Math.round(pct / 5)) + "░".repeat(20 - Math.round(pct / 5));
     console.log(`  ${k.padEnd(28)} ${bar} ${pct}%`);
@@ -109,11 +124,10 @@ async function main() {
     if (r.extracted.notes) console.log(`Notes: ${r.extracted.notes}`);
     for (const k of fieldKeys) {
       const v = r.extracted[k];
-      const display =
-        v === null || v === undefined || v === "" ? "\x1b[90m∅\x1b[0m" :
-        v === "unspecified" ? "\x1b[90munspecified\x1b[0m" :
-        String(v).slice(0, 80);
-      console.log(`  ${k.padEnd(28)} ${display}`);
+      const display = displayValue(v);
+      const conf = r.extracted.confidences?.[k];
+      const confStr = conf !== undefined ? ` \x1b[90m[${Math.round(conf * 100)}%]\x1b[0m` : "";
+      console.log(`  ${k.padEnd(28)} ${display}${confStr}`);
     }
     if (r.extracted.jd_body) {
       const bodyPreview = r.extracted.jd_body.replace(/\s+/g, " ").trim().slice(0, 150);
@@ -124,17 +138,41 @@ async function main() {
   }
 
   // Overall accuracy estimate
-  const allFilled = results.reduce(
+  const allFilled = results.reduce<number>(
     (sum, r) =>
       sum +
-      fieldKeys.filter((k) => {
-        const v = r.extracted[k];
-        return v !== null && v !== undefined && v !== "" && v !== "unspecified";
-      }).length,
+      fieldKeys.filter((k) => isFieldFilled(r.extracted[k])).length,
     0
   );
   const total = results.length * fieldKeys.length;
   console.log(`\n\x1b[1mOverall fill rate: ${Math.round((allFilled / total) * 100)}%\x1b[0m  (${allFilled}/${total} fields populated)`);
+}
+
+function isFieldFilled(v: unknown): boolean {
+  if (v === null || v === undefined) return false;
+  if (v === "") return false;
+  if (v === "unspecified") return false;
+  if (Array.isArray(v)) return v.length > 0;
+  return true;
+}
+
+function displayValue(v: unknown): string {
+  if (v === null || v === undefined || v === "") return "\x1b[90m∅\x1b[0m";
+  if (v === "unspecified") return "\x1b[90munspecified\x1b[0m";
+  if (Array.isArray(v)) {
+    if (v.length === 0) return "\x1b[90m∅\x1b[0m";
+    return v
+      .map((item) => {
+        if (item && typeof item === "object" && "text" in item) {
+          const o = item as { text: string; lat?: number | null; lng?: number | null };
+          const geo = o.lat != null && o.lng != null ? ` (${o.lat.toFixed(2)}, ${o.lng.toFixed(2)})` : "";
+          return `${o.text}${geo}`;
+        }
+        return String(item);
+      })
+      .join("\n                                ");
+  }
+  return String(v);
 }
 
 main().catch((err) => {

@@ -13,6 +13,8 @@ export interface BoardIdentity {
   kind: BoardKind;
   company: string | null;
   jobId: string | null;
+  /** Board-specific extras (e.g. workday needs host + site). */
+  extras?: Record<string, string>;
 }
 
 export function identifyBoard(url: string): BoardIdentity {
@@ -67,8 +69,23 @@ export function identifyBoard(url: string): BoardIdentity {
   }
 
   // Workday — many variants, all *.myworkdayjobs.com or wd*.myworkdaysite.com
+  //   https://salesforce.wd12.myworkdayjobs.com/en-US/External_Career_Site/job/{slug-and-id}
+  //   https://tenant.wdN.myworkdayjobs.com/{site}/job/{slug-and-id}    (locale optional)
+  // We need: tenant (host's first label), site (path segment before /job/),
+  // and the slug-and-id (last segment of path).
   if (host.includes("myworkdayjobs.com") || host.includes("myworkdaysite.com")) {
-    return { kind: "workday", company: null, jobId: null };
+    const tenant = host.split(".")[0] || null;
+    const m = path.match(/(?:\/[a-z]{2}-[A-Z]{2})?\/([^/]+)\/job\/([^/?#]+)/);
+    if (tenant && m) {
+      const [, site, jobPath] = m;
+      return {
+        kind: "workday",
+        company: tenant,
+        jobId: jobPath,
+        extras: { host, site },
+      };
+    }
+    return { kind: "workday", company: tenant, jobId: null, extras: { host } };
   }
 
   // LinkedIn

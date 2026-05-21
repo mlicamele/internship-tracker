@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listByTriageState } from "@/lib/db/applications";
 import { getProfile } from "@/lib/db/profile";
-import { haversineMiles } from "@/lib/geocode";
+import { weightedNearestDistance } from "@/lib/distance";
 import { buttonVariants } from "@/components/ui/button";
 import { Plus } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -24,16 +24,16 @@ export default async function InboxPage() {
     listByTriageState(supabase, user.id, "inbox"),
   ]);
 
-  const home =
+  const destinations =
     profile?.home_lat != null && profile.home_lng != null
-      ? { lat: profile.home_lat, lng: profile.home_lng }
-      : null;
+      ? [{ lat: profile.home_lat, lng: profile.home_lng, weight: 1 }]
+      : [];
 
   const rows: PipelineRow[] = applications.map((app) => ({
     ...app,
     distance_miles:
-      home && app.role.role_lat != null && app.role.role_lng != null
-        ? haversineMiles(home, { lat: app.role.role_lat, lng: app.role.role_lng })
+      destinations.length > 0
+        ? weightedNearestDistance(app.role.locations, destinations)
         : null,
   }));
 

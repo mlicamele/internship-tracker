@@ -68,24 +68,29 @@ export async function saveNewApplication(formData: FormData) {
     extracted?.company?.trim() ||
     (url ? companyFromUrl(url) : "Unknown company");
   const roleTitle = extracted?.title?.trim() || "Untitled role";
-  const locationText = extracted?.location_text?.trim() || null;
   const jdBodyText = extracted?.jd_body || pastedJd || null;
   const jdUrl = url ?? null;
   const targetYear = extracted?.target_year ?? defaultTargetYear();
 
-  // 3. Geocode location if we have one (best-effort)
-  let roleLat: number | null = null;
-  let roleLng: number | null = null;
-  if (locationText) {
-    try {
-      const coords = await geocode(locationText);
-      if (coords) {
-        roleLat = coords.lat;
-        roleLng = coords.lng;
+  // 3. Geocode each location (best-effort; null coords are OK)
+  const locations: import("@/lib/db/types").RoleLocation[] = [];
+  for (const loc of extracted?.locations ?? []) {
+    const text = loc.text.trim();
+    if (!text) continue;
+    let lat: number | null = loc.lat ?? null;
+    let lng: number | null = loc.lng ?? null;
+    if (lat == null || lng == null) {
+      try {
+        const coords = await geocode(text);
+        if (coords) {
+          lat = coords.lat;
+          lng = coords.lng;
+        }
+      } catch {
+        // ignore
       }
-    } catch {
-      // ignore
     }
+    locations.push({ text, lat, lng });
   }
 
   // 4. Find-or-create company
@@ -95,9 +100,7 @@ export async function saveNewApplication(formData: FormData) {
   const role = await createRole(supabase, {
     companyId: company.id,
     title: roleTitle,
-    locationText,
-    roleLat,
-    roleLng,
+    locations,
     jdUrl,
     jdBodyText,
     deadlineAt: extracted?.deadline_at ?? null,
@@ -105,10 +108,10 @@ export async function saveNewApplication(formData: FormData) {
     workModel: extracted?.work_model ?? "unspecified",
     targetYear,
     targetSeason: extracted?.target_season ?? "summer",
-    compensationText: extracted?.compensation_text ?? null,
-    compensationHourlyCents: extracted?.compensation_hourly_cents ?? null,
-    classYearTag: extracted?.class_year_tag ?? "unspecified",
-    classYearConfidence: extracted?.class_year_confidence ?? null,
+    compensationHourlyDollars: extracted?.compensation_hourly_dollars ?? null,
+    maxGradYear: extracted?.max_grad_year ?? null,
+    relocationAssistance: extracted?.relocation_assistance ?? "unspecified",
+    extractionConfidences: extracted?.confidences ?? {},
     source: "manual",
   });
 

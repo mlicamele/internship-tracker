@@ -11,10 +11,9 @@
 
 export type RelocationTolerance = "nope" | "regional" | "anywhere";
 
-export type ClassYearTag =
-  | "freshman_ok"
-  | "sophomore_ok"
-  | "junior_plus"
+export type RelocationAssistance =
+  | "provided"
+  | "not_provided"
   | "unspecified";
 
 export type RoleSource = "paste_url" | "scrape_simplify" | "manual";
@@ -76,28 +75,35 @@ export interface Company {
   created_at: string;
 }
 
+export interface RoleLocation {
+  text: string;
+  lat: number | null;
+  lng: number | null;
+}
+
 export interface Role {
   id: string;
   company_id: string;
   title: string;
-  location_text: string | null;
-  role_lat: number | null;
-  role_lng: number | null;
+  locations: RoleLocation[];
   jd_url: string | null;
   jd_body_text: string | null;
   jd_snapshot_at: string | null;
   deadline_at: string | null;
   posted_at: string | null;
-  class_year_tag: ClassYearTag;
-  class_year_confidence: number | null;
+  /** Latest graduation year still eligible for this role. Null = open to all years. */
+  max_grad_year: number | null;
+  relocation_assistance: RelocationAssistance;
+  /** Per-field confidence map emitted by the LLM extractor (0..1). Missing keys = no signal / manually edited. */
+  extraction_confidences: Record<string, number>;
   source: RoleSource;
   source_external_id: string | null;
   // Added in migration 0002
   target_year: number | null;
   target_season: TargetSeason;
   work_model: WorkModel;
-  compensation_text: string | null;
-  compensation_hourly_cents: number | null;
+  /** Hourly rate in whole dollars (e.g. 50 for $50/hr). Null if unknown or non-numeric comp. */
+  compensation_hourly_dollars: number | null;
   created_at: string;
 }
 

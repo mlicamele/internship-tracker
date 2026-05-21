@@ -2,20 +2,21 @@
 
 import type { ApplicationRow } from "@/lib/db/applications";
 import {
-  ClassYearCell,
+  RelocationAssistanceCell,
   WorkModelCell,
   formatCompensation,
   formatDate,
+  formatMaxGradYear,
 } from "@/app/(app)/pipeline/_components/cell-formatters";
 import { ExternalLink } from "@/components/icons";
-import { parseCompensation } from "@/lib/comp/parse";
 import {
   updateRoleFieldAction,
   type RoleEditableField,
 } from "../actions";
+import { ConfidenceBadge } from "./confidence-badge";
 import { InlineEdit } from "./inline-edit";
 import type {
-  ClassYearTag,
+  RelocationAssistance,
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
@@ -43,13 +44,15 @@ export function EditableMetadataRow({
 }) {
   const r = application.role;
   const appId = application.id;
+  const conf = r.extraction_confidences ?? {};
 
   return (
     <div className="grid grid-cols-1 gap-x-4 gap-y-4 rounded-md border border-border bg-card/40 p-4 sm:grid-cols-2 lg:grid-cols-3">
       {/* Target year + season — two adjacent inline edits */}
       <div className="space-y-0.5">
-        <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Target
+        <div className="flex items-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          <span>Target</span>
+          <ConfidenceBadge confidence={conf.target_year ?? conf.target_season} />
         </div>
         <div className="flex items-center gap-1">
           <InlineEdit<string>
@@ -98,28 +101,54 @@ export function EditableMetadataRow({
         </div>
       </div>
 
-      <ItemWithLabel label="Eligibility">
-        <InlineEdit<ClassYearTag>
-          value={r.class_year_tag}
-          display={(v) => <ClassYearCell tag={v} />}
+      <ItemWithLabel
+        label="Grad year ≤"
+        confidence={conf.max_grad_year}
+      >
+        <InlineEdit<string>
+          value={r.max_grad_year ? String(r.max_grad_year) : ""}
+          display={(v) => formatMaxGradYear(v ? Number(v) : null)}
+          edit={({ draft, setDraft, inputRef }) => (
+            <input
+              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+              type="number"
+              min={2024}
+              max={2034}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              className={INPUT_CLS}
+              style={{ width: "6rem" }}
+              placeholder="2029"
+            />
+          )}
+          onSave={makeSaver(appId, "max_grad_year")}
+        />
+      </ItemWithLabel>
+
+      <ItemWithLabel
+        label="Relocation"
+        confidence={conf.relocation_assistance}
+      >
+        <InlineEdit<RelocationAssistance>
+          value={r.relocation_assistance}
+          display={(v) => <RelocationAssistanceCell value={v} />}
           edit={({ draft, setDraft, inputRef }) => (
             <select
               ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
               value={draft}
-              onChange={(e) => setDraft(e.target.value as ClassYearTag)}
+              onChange={(e) => setDraft(e.target.value as RelocationAssistance)}
               className={SELECT_CLS}
             >
-              <option value="unspecified">Any</option>
-              <option value="freshman_ok">Freshman+</option>
-              <option value="sophomore_ok">Sophomore+</option>
-              <option value="junior_plus">Junior+</option>
+              <option value="unspecified">Unspecified</option>
+              <option value="provided">Provided</option>
+              <option value="not_provided">Not provided</option>
             </select>
           )}
-          onSave={makeSaver(appId, "class_year_tag")}
+          onSave={makeSaver(appId, "relocation_assistance")}
         />
       </ItemWithLabel>
 
-      <ItemWithLabel label="Deadline">
+      <ItemWithLabel label="Deadline" confidence={conf.deadline_at}>
         <InlineEdit<string>
           value={isoToDateInput(r.deadline_at)}
           display={(v) => <span className="text-sm">{formatDate(v ? v + "T00:00:00Z" : null)}</span>}
@@ -136,7 +165,7 @@ export function EditableMetadataRow({
         />
       </ItemWithLabel>
 
-      <ItemWithLabel label="Posted">
+      <ItemWithLabel label="Posted" confidence={conf.posted_at}>
         <InlineEdit<string>
           value={isoToDateInput(r.posted_at)}
           display={(v) => <span className="text-sm">{formatDate(v ? v + "T00:00:00Z" : null)}</span>}
@@ -153,29 +182,35 @@ export function EditableMetadataRow({
         />
       </ItemWithLabel>
 
-      <ItemWithLabel label="Location">
+      <ItemWithLabel label="Locations" confidence={conf.locations}>
         <InlineEdit<string>
-          value={r.location_text ?? ""}
-          display={(v) => (
-            <span className="text-sm">
-              {v || <span className="text-muted-foreground">—</span>}
-            </span>
-          )}
+          value={r.locations.map((l) => l.text).join("\n")}
+          display={(v) =>
+            v ? (
+              <ul className="space-y-0.5 text-sm">
+                {v.split("\n").filter(Boolean).map((line, i) => (
+                  <li key={i}>{line}</li>
+                ))}
+              </ul>
+            ) : (
+              <span className="text-sm text-muted-foreground">—</span>
+            )
+          }
           edit={({ draft, setDraft, inputRef }) => (
-            <input
-              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
-              type="text"
+            <textarea
+              ref={inputRef as React.MutableRefObject<HTMLTextAreaElement>}
+              rows={Math.max(2, draft.split("\n").length)}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
-              className={INPUT_CLS}
-              placeholder="Remote · San Francisco"
+              className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              placeholder="San Francisco, CA&#10;New York, NY&#10;Remote"
             />
           )}
-          onSave={makeSaver(appId, "location_text")}
+          onSave={makeSaver(appId, "locations")}
         />
       </ItemWithLabel>
 
-      <ItemWithLabel label="Mode">
+      <ItemWithLabel label="Mode" confidence={conf.work_model}>
         <InlineEdit<WorkModel>
           value={r.work_model}
           display={(v) => <WorkModelCell model={v} />}
@@ -196,41 +231,37 @@ export function EditableMetadataRow({
         />
       </ItemWithLabel>
 
-      <ItemWithLabel label="Compensation">
+      <ItemWithLabel label="$/hr" confidence={conf.compensation_hourly_dollars}>
         <InlineEdit<string>
-          value={r.compensation_text ?? ""}
-          display={(v) =>
-            formatCompensation(
-              v || null,
-              r.compensation_hourly_cents
-            )
+          value={
+            r.compensation_hourly_dollars !== null
+              ? String(r.compensation_hourly_dollars)
+              : ""
           }
-          edit={({ draft, setDraft, inputRef }) => {
-            const parsed = draft ? parseCompensation(draft) : null;
-            return (
-              <div className="space-y-1">
-                <input
-                  ref={inputRef as React.MutableRefObject<HTMLInputElement>}
-                  type="text"
-                  value={draft}
-                  onChange={(e) => setDraft(e.target.value)}
-                  className={INPUT_CLS}
-                  placeholder="$50/hr + housing"
-                />
-                {parsed?.matched && parsed.hourlyCents !== null && (
-                  <p className="text-[11px] text-muted-foreground">
-                    ≈ ${(parsed.hourlyCents / 100).toFixed(2)}/hr (sortable)
-                  </p>
-                )}
-                {parsed && !parsed.matched && draft.length > 0 && (
-                  <p className="text-[11px] text-muted-foreground">
-                    Saved as text only (no hourly equivalent)
-                  </p>
-                )}
-              </div>
-            );
-          }}
-          onSave={makeSaver(appId, "compensation_text")}
+          display={(v) => formatCompensation(v ? Number(v) : null)}
+          edit={({ draft, setDraft, inputRef }) => (
+            <div className="relative">
+              <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                $
+              </span>
+              <input
+                ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+                type="number"
+                min={0}
+                max={9999}
+                step={1}
+                inputMode="numeric"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                className={`${INPUT_CLS} pl-6 pr-12`}
+                placeholder="50"
+              />
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">
+                /hr
+              </span>
+            </div>
+          )}
+          onSave={makeSaver(appId, "compensation_hourly_dollars")}
         />
       </ItemWithLabel>
 
@@ -260,14 +291,17 @@ export function EditableMetadataRow({
 function ItemWithLabel({
   label,
   children,
+  confidence,
 }: {
   label: string;
   children: React.ReactNode;
+  confidence?: number;
 }) {
   return (
     <div className="space-y-0.5">
-      <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
+      <div className="flex items-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span>{label}</span>
+        <ConfidenceBadge confidence={confidence} />
       </div>
       {children}
     </div>

@@ -12,13 +12,14 @@ export interface EvidenceLayer {
     | "greenhouse_api"
     | "lever_api"
     | "ashby_api"
+    | "workday_api"
     | "jsonld"
     | "direct_fetch"
     | "jina_reader"
     | "cf_browser";
   company: string | null;
   title: string | null;
-  location_text: string | null;
+  location_texts: string[];
   jd_body: string;
   jd_url: string | null;
   posted_at?: string | null;
