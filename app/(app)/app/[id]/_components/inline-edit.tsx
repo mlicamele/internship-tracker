@@ -152,10 +152,11 @@ export function InlineEdit<T>({
           type="button"
           onClick={enterEdit}
           className={cn(
-            "group/inline-edit-button min-h-7 w-full cursor-text rounded-sm px-1 py-0.5 -mx-1 text-left text-sm transition-colors",
-            "hover:bg-muted/40 focus:outline-none focus-visible:bg-muted/40",
-            savedFlash && "ring-1 ring-emerald-500/40"
+            "group/inline-edit-button -mx-1 inline-flex min-h-11 w-full cursor-text items-center rounded-sm border-b border-dashed border-border/60 px-1 py-1.5 text-left text-sm transition-colors md:min-h-9",
+            "hover:border-foreground/40 hover:bg-muted/30 focus:outline-none focus-visible:bg-muted/40 focus-visible:border-foreground/60",
+            savedFlash && "border-emerald-500/60 bg-emerald-500/5"
           )}
+          aria-label="Click to edit"
         >
           {display(value)}
         </button>

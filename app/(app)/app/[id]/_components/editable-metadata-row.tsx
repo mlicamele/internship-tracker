@@ -45,7 +45,7 @@ export function EditableMetadataRow({
   const appId = application.id;
 
   return (
-    <div className="grid grid-cols-2 gap-x-4 gap-y-3 rounded-md border border-border bg-card/40 p-4 md:grid-cols-4 lg:grid-cols-6">
+    <div className="grid grid-cols-1 gap-x-4 gap-y-4 rounded-md border border-border bg-card/40 p-4 sm:grid-cols-2 lg:grid-cols-3">
       {/* Target year + season — two adjacent inline edits */}
       <div className="space-y-0.5">
         <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">

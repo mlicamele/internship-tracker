@@ -182,7 +182,8 @@ export async function saveNewApplication(formData: FormData) {
     source: "manual",
   });
 
-  // 8. Create application
+  // 8. Create application — lands in active Pipeline. Detail page is the
+  // "fillable card" where the user reviews extracted fields + fixes inline.
   const application = await createApplication(supabase, {
     userId: user.id,
     roleId: role.id,

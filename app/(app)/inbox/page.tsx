@@ -7,8 +7,8 @@ import { haversineMiles } from "@/lib/geocode";
 import { buttonVariants } from "@/components/ui/button";
 import { Plus } from "@/components/icons";
 import { cn } from "@/lib/utils";
-import { PipelineTable } from "../pipeline/_components/data-table";
 import type { PipelineRow } from "../pipeline/_components/columns";
+import { InboxCard } from "./_components/inbox-card";
 
 export const dynamic = "force-dynamic";
 
@@ -38,13 +38,13 @@ export default async function InboxPage() {
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             {rows.length === 0
-              ? "Triage queue is empty. Phase 4 will fill this with paste-URL captures and scraped roles."
+              ? "Nothing to triage. Add a role to get started."
               : `${rows.length} role${rows.length === 1 ? "" : "s"} to triage`}
           </p>
         </div>
@@ -57,15 +57,23 @@ export default async function InboxPage() {
         </Link>
       </header>
 
-      <PipelineTable
-        rows={rows}
-        emptyState={
-          <span>
-            Nothing waiting for triage. New roles will land here once paste-URL
-            capture (Phase 4) and the scraper (Phase 5) are live.
-          </span>
-        }
-      />
+      {rows.length === 0 ? (
+        <div className="rounded-md border border-border border-dashed p-8 text-center">
+          <p className="text-sm text-muted-foreground">
+            Paste a URL and the app extracts what it can. Tap{" "}
+            <Link href="/applications/new" className="text-foreground underline">
+              + New
+            </Link>{" "}
+            to add your first role.
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {rows.map((row) => (
+            <InboxCard key={row.id} row={row} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
