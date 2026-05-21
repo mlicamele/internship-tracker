@@ -55,20 +55,27 @@ High-volume CS internship search has chronic pain points that existing tools don
 | Capture | Paste-URL quick-add (mobile) | Server-side scrape extracts title, company, location, JD body, deadline if present |
 | Inbox | Smart sort | `score = w1·deadline_urgency + w2·fit_score + w3·recency`. Fit = class-year × location × interest overlap |
 | Inbox | Swipe triage | Apply / Maybe / Skip |
-| Pipeline | Kanban | Saved · Applied · OA · Phone · Technical · Final · Offer · Reject · Ghosted |
-| Pipeline | Status timeline | Per-app: when each status was reached |
+| Pipeline | Spreadsheet (TanStack Table) | Sortable columns, per-column filters, toggleable column visibility, sticky header. Status as a column (with filter chips), not kanban swimlanes — Michael preferred power-user spreadsheet UX over Trello-style |
+| Pipeline | Status timeline | Per-app: when each status was reached, via `status_events` table |
+| Role fields | Target term | `target_year INT` + `target_season ENUM` — distinguishes Summer 2027 vs Summer 2028 cohort |
+| Role fields | Work model | `work_model ENUM('remote','hybrid','onsite','unspecified')` — pairs with distance for meaningful geography filtering |
+| Role fields | Compensation | `compensation_text` (display) + `compensation_hourly_cents` (sortable) |
+| Role fields | Class year eligibility | `class_year_tag ENUM('freshman_ok','sophomore_ok','junior_plus','unspecified')` — manual entry in v1; LLM-auto-tagged in Phase 5 |
 | App detail | JD snapshot + notes | JD body cached at scrape time so it doesn't rot if the posting closes |
-| App detail | Linked resume version | Multiple PDFs, tagged versions, pick one per application |
-| App detail | Linked contacts | Lightweight: name, role, company, last contact date |
+| App detail | Linked resume version | Single FK to resume_versions (one per app); upload UI lands in Phase 6 |
+| App detail | Linked contacts (M:N) | Lightweight: name, role, company, last contact date |
+| App detail | Interview data capture | Per-application `interviews` rows: scheduled_at, type, meeting_url, location, interviewer_names, notes, outcome. Just data capture — prep tracking (LeetCode log, behavioral story bank) stays in v2 |
+| App detail | Company notes (per-user) | `company_notes` table keyed (user_id, company_id) — survives across multiple applications to the same company |
 | Discovery | SimplifyJobs scraper | Daily cron pulling from `vanshb03/Summer2027-Internships` (or successor) |
 | Discovery | LLM class-year tag | Haiku classifies JD body → freshman-OK / sophomore-OK / junior+ / unspecified. Confidence score stored |
 | Discovery | Industry cycle warning | Tag companies by industry; flag roles whose typical cycle has closed |
-| Filters | Class year, location, role type | All driven by profile defaults, per-session overrideable |
-| Filters | Distance from home | Geocode both user home and role location, sort by miles |
-| AI | "Suggest bullet angles" button | Input: JD body + user profile + selected resume version (PDF, treated as opaque). Output: 2–3 bullet angle suggestions for the user to write in Overleaf |
+| Filters | Class year, location, work model, target term | Default-on filters from profile; per-session overrideable |
+| Pipeline column | Distance from home | Computed at query time via `haversineMiles(role.lat/lng, profile.home_lat/lng)`. Sortable. Null when either side lacks coordinates |
+| AI | "Suggest bullet angles" button | Input: JD body + user profile + selected resume version (PDF text-extracted via pdf-parse). Output: 2–3 bullet angle suggestions for the user to write in Overleaf |
+| Theme | Dark mode default | shadcn dark tokens activated globally; no theme toggle in v1 |
 | Auth | Supabase | Single-user UI, but multi-user data model |
 
-**What's NOT in v1:** see `V2_FEATURES.md`. Top deferrals: native iOS share-sheet, .tex parsing, browser extension, Gmail integration, cold-outreach automation, interview prep tracker, calendar sync, analytics, multi-user UI, additional scrape sources.
+**What's NOT in v1:** see `V2_FEATURES.md`. Top deferrals: native iOS share-sheet, .tex parsing, browser extension, Gmail integration, cold-outreach automation, interview *prep* tracker (data capture IS in v1), calendar sync, analytics, multi-user UI, additional scrape sources.
 
 ---
 
@@ -93,13 +100,14 @@ The end state is a tech-focused student career command center — discovery, app
 
 ## Tech stack
 
-- **Frontend**: Next.js 15 (App Router, server actions), TypeScript, Tailwind, shadcn/ui
+- **Frontend**: Next.js 16 (App Router, server actions, `proxy.ts` not `middleware.ts`), TypeScript, Tailwind v4, shadcn/ui (base-ui flavor)
 - **Backend**: Next.js server actions + route handlers; Postgres via Supabase
-- **Auth + storage**: Supabase (auth + Postgres + S3-compatible file storage for resume PDFs)
-- **AI**: Anthropic API — Haiku for cheap class-year classification, Sonnet for bullet-angle suggestions
-- **Scraping**: Scheduled function (Vercel cron or Supabase edge function) fetching the SimplifyJobs GitHub repo daily, parsing the markdown table
-- **Geocoding**: One free tier API (Nominatim / OpenStreetMap, or Mapbox dev tier)
-- **Deploy**: Vercel
+- **Auth + storage**: Supabase (magic-link auth, Postgres, S3-compatible file storage for resume PDFs); session cookies preserved across middleware redirects to avoid reload-loop
+- **AI**: Anthropic API — Haiku 4.5 (`claude-haiku-4-5-20251001`) for cheap class-year classification, Sonnet 4.6 (`claude-sonnet-4-6`) for bullet-angle suggestions
+- **Tables**: `@tanstack/react-table` v8 — headless primitive powering the spreadsheet Pipeline view
+- **Scraping**: GitHub Actions cron POSTing to a Vercel route handler (avoids Vercel Cron free-tier limits)
+- **Geocoding**: Nominatim (free, requires User-Agent), throttled to 1.5s. Mapbox dev tier as upgrade path
+- **Deploy**: Vercel (note: April 2026 breach — only NEXT_PUBLIC_* keys on Vercel in early phases; service-role key added in Phase 5 with Sensitive flag)
 - **Cost target**: <$10/mo (all on free tiers + Anthropic API credit usage)
 
 ---

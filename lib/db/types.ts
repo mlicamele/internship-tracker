@@ -32,6 +32,21 @@ export type ApplicationStatus =
   | "reject"
   | "ghosted";
 
+// Added in migration 0002
+
+export type TargetSeason = "summer" | "fall" | "winter" | "spring";
+
+export type WorkModel = "remote" | "hybrid" | "onsite" | "unspecified";
+
+export type InterviewType =
+  | "phone_screen"
+  | "technical"
+  | "behavioral"
+  | "system_design"
+  | "onsite"
+  | "final"
+  | "other";
+
 
 // ---------- Row types ----------
 
@@ -77,6 +92,12 @@ export interface Role {
   class_year_confidence: number | null;
   source: RoleSource;
   source_external_id: string | null;
+  // Added in migration 0002
+  target_year: number | null;
+  target_season: TargetSeason;
+  work_model: WorkModel;
+  compensation_text: string | null;
+  compensation_hourly_cents: number | null;
   created_at: string;
 }
 
@@ -130,6 +151,31 @@ export interface ApplicationContact {
   application_id: string;
   contact_id: string;
   attached_at: string;
+}
+
+// Added in migration 0002
+
+export interface Interview {
+  id: string;
+  application_id: string;
+  type: InterviewType;
+  scheduled_at: string | null;
+  duration_minutes: number | null;
+  meeting_url: string | null;
+  location: string | null;
+  interviewer_names: string | null;
+  notes: string;
+  outcome: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CompanyNote {
+  user_id: string;
+  company_id: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
 }
 
 

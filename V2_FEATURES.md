@@ -70,11 +70,13 @@ Features deliberately deferred from the v1 MVP to keep scope realistic for the J
 
 ---
 
-## 6. Interview prep tracking
+## 6. Interview *prep* tracking
 
-**What:** Log LeetCode problems done, behavioral story bank ("tell me about a time..."), per-company prep notes.
+> **Note (updated Phase 2):** Interview *data capture* (logging scheduled interviews with time, meeting link, type, notes, outcome) IS now in v1 — added during Phase 2 because Michael wanted to log meeting links and details inline with applications. The remaining v2 scope is the **prep workflow** below, which is distinct from data capture.
 
-**Why deferred:** Separate workflow from application tracking. Worth its own scoping conversation.
+**What:** Log LeetCode problems done with notes, behavioral story bank ("tell me about a time..."), per-company prep notes separate from per-application notes (e.g., "Anthropic's interview style is collaborative coding, not whiteboard"), maybe AI-assisted mock interview question generation given the JD.
+
+**Why deferred:** Separate workflow from application tracking. Worth its own scoping conversation. The v1 interview *data capture* gives the foundation; prep workflow layers on top once Michael has real interviews to prep for.
 
 **Revisit when:** v1 is shipped and Michael starts getting interviews — then we build the prep loop with real interview pressure as the design constraint.
 

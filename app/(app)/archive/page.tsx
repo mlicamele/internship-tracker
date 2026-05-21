@@ -1,18 +1,14 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listByTriageState } from "@/lib/db/applications";
 import { getProfile } from "@/lib/db/profile";
 import { haversineMiles } from "@/lib/geocode";
-import { buttonVariants } from "@/components/ui/button";
-import { Plus } from "@/components/icons";
-import { cn } from "@/lib/utils";
 import { PipelineTable } from "../pipeline/_components/data-table";
 import type { PipelineRow } from "../pipeline/_components/columns";
 
 export const dynamic = "force-dynamic";
 
-export default async function InboxPage() {
+export default async function ArchivePage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -21,7 +17,7 @@ export default async function InboxPage() {
 
   const [profile, applications] = await Promise.all([
     getProfile(supabase, user.id),
-    listByTriageState(supabase, user.id, "inbox"),
+    listByTriageState(supabase, user.id, ["snoozed", "skipped"]),
   ]);
 
   const home =
@@ -39,32 +35,16 @@ export default async function InboxPage() {
 
   return (
     <div className="space-y-6">
-      <header className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold tracking-tight">Inbox</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {rows.length === 0
-              ? "Triage queue is empty. Phase 4 will fill this with paste-URL captures and scraped roles."
-              : `${rows.length} role${rows.length === 1 ? "" : "s"} to triage`}
-          </p>
-        </div>
-        <Link
-          href="/applications/new"
-          className={cn(buttonVariants(), "inline-flex items-center gap-1")}
-        >
-          <Plus className="size-4" />
-          New
-        </Link>
+      <header>
+        <h1 className="text-xl font-semibold tracking-tight">Archive</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Snoozed and skipped roles. {rows.length} total.
+        </p>
       </header>
 
       <PipelineTable
         rows={rows}
-        emptyState={
-          <span>
-            Nothing waiting for triage. New roles will land here once paste-URL
-            capture (Phase 4) and the scraper (Phase 5) are live.
-          </span>
-        }
+        emptyState={<span>No snoozed or skipped roles.</span>}
       />
     </div>
   );
