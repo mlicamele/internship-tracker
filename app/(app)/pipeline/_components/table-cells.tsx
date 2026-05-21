@@ -51,7 +51,7 @@ export function TableTextField({
   "value" | "onChange" | "onBlur" | "onKeyDown" | "className"
 >) {
   const [draft, setDraft] = useState(value);
-  const [pending, startTransition] = useTransition();
+  const [, startTransition] = useTransition();
   const lastCommitted = useRef(value);
 
   // Resync when server data changes underneath us. Conditional inside the
@@ -78,7 +78,7 @@ export function TableTextField({
   return (
     <span
       className={cn(
-        "inline-flex h-7 items-center gap-1 rounded-sm px-1.5",
+        "inline-flex h-7 items-center gap-1 rounded-sm px-1.5 focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary",
         className
       )}
       onClick={(e) => e.stopPropagation()}
@@ -102,12 +102,13 @@ export function TableTextField({
         style={style}
         className={cn(
           "h-full min-w-0 flex-1 border-0 bg-transparent p-0 text-sm outline-none placeholder:text-muted-foreground focus-visible:ring-0",
+          // Strip the number-spinner arrows so number inputs read like plain text
+          "[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none",
           align === "right" && "text-right",
           inputClassName
         )}
       />
       {suffix && <span className="text-muted-foreground">{suffix}</span>}
-      {pending && <span className="text-xs text-muted-foreground">…</span>}
     </span>
   );
 }

@@ -205,7 +205,7 @@ export function InterviewsCell({
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="-mx-1 cursor-text rounded-sm px-1 py-0.5 text-left underline decoration-dotted decoration-muted-foreground/40 underline-offset-4 hover:bg-muted/40 hover:decoration-muted-foreground"
+        className="inline-flex h-7 cursor-pointer items-center rounded-sm px-1.5 text-left hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
       >
         {formatNextInterview(nextInterview)}
       </button>

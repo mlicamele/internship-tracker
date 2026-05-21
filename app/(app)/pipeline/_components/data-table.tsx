@@ -87,7 +87,7 @@ export function PipelineTable({
                     <th
                       key={header.id}
                       className={cn(
-                        "h-9 whitespace-nowrap px-3 text-left align-middle",
+                        "h-9 whitespace-nowrap px-3 text-left align-middle border-r border-border/40 last:border-r-0",
                         mobileHiddenSet.has(header.column.id) &&
                           "hidden md:table-cell",
                         isCompany &&
@@ -148,7 +148,7 @@ export function PipelineTable({
                       <td
                         key={cell.id}
                         className={cn(
-                          "px-3 py-2 align-middle whitespace-nowrap",
+                          "px-3 py-2 align-middle whitespace-nowrap border-r border-border/40 last:border-r-0",
                           mobileHiddenSet.has(cell.column.id) &&
                             "hidden md:table-cell",
                           isCompany &&
