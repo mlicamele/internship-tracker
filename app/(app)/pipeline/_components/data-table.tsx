@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   type ColumnFiltersState,
   type SortingState,
@@ -13,7 +13,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
-import { ChevronRight } from "@/components/icons";
+import { ExternalLink } from "@/components/icons";
 import {
   DEFAULT_HIDDEN_COLUMNS,
   MOBILE_HIDDEN_COLUMNS,
@@ -23,6 +23,10 @@ import {
 import { ColumnVisibilityMenu } from "./column-visibility-menu";
 import { StatusFilter } from "./status-filter";
 
+// Sticky-column widths (must match the <th>/<td> widths)
+const EDIT_COL_W = 40; // px
+const COMPANY_COL_W = 160; // px
+
 export function PipelineTable({
   rows,
   emptyState,
@@ -30,7 +34,6 @@ export function PipelineTable({
   rows: PipelineRow[];
   emptyState?: React.ReactNode;
 }) {
-  const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([
     { id: "deadline", desc: false },
   ]);
@@ -39,8 +42,6 @@ export function PipelineTable({
     DEFAULT_HIDDEN_COLUMNS
   );
 
-  // TanStack Table returns non-memoizable functions; React Compiler can't
-  // optimize this hook and warns. Suppress — runtime behavior is fine.
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: rows,
@@ -70,26 +71,42 @@ export function PipelineTable({
 
       <div className="overflow-x-auto rounded-md border border-border">
         <table className="w-full text-sm">
-          <thead className="sticky top-0 z-10 bg-background">
+          <thead className="bg-background">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id} className="border-b border-border">
-                {headerGroup.headers.map((header) => (
-                  <th
-                    key={header.id}
-                    className={cn(
-                      "h-9 whitespace-nowrap px-3 text-left align-middle",
-                      mobileHiddenSet.has(header.column.id) && "hidden md:table-cell"
-                    )}
-                  >
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </th>
-                ))}
-                <th aria-hidden className="w-8" />
+                {/* Sticky: edit-button column header */}
+                <th
+                  className="sticky left-0 z-30 h-9 bg-background"
+                  style={{ width: EDIT_COL_W, minWidth: EDIT_COL_W }}
+                  aria-hidden
+                />
+                {headerGroup.headers.map((header) => {
+                  const isCompany = header.column.id === "company";
+                  return (
+                    <th
+                      key={header.id}
+                      className={cn(
+                        "h-9 whitespace-nowrap px-3 text-left align-middle",
+                        mobileHiddenSet.has(header.column.id) &&
+                          "hidden md:table-cell",
+                        isCompany &&
+                          "sticky z-20 bg-background border-r border-border"
+                      )}
+                      style={
+                        isCompany
+                          ? { left: EDIT_COL_W, minWidth: COMPANY_COL_W }
+                          : undefined
+                      }
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </th>
+                  );
+                })}
               </tr>
             ))}
           </thead>
@@ -107,23 +124,47 @@ export function PipelineTable({
               visibleRows.map((row) => (
                 <tr
                   key={row.id}
-                  onClick={() => router.push(`/app/${row.original.id}`)}
-                  className="cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-muted/30"
+                  className="group/row border-b border-border last:border-b-0 transition-colors hover:bg-muted/30"
                 >
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className={cn(
-                        "px-3 py-2 align-middle whitespace-nowrap",
-                        mobileHiddenSet.has(cell.column.id) && "hidden md:table-cell"
-                      )}
+                  {/* Sticky: open-detail button */}
+                  <td
+                    className="sticky left-0 z-20 bg-background px-1 py-2 group-hover/row:bg-muted/30"
+                    style={{ width: EDIT_COL_W, minWidth: EDIT_COL_W }}
+                  >
+                    <Link
+                      href={`/app/${row.original.id}`}
+                      aria-label="Open detail page"
+                      title="Open detail page"
+                      className="inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
                     >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                  <td className="w-8 pr-3 text-right text-muted-foreground">
-                    <ChevronRight className="ml-auto size-4" />
+                      <ExternalLink className="size-3.5" />
+                    </Link>
                   </td>
+                  {row.getVisibleCells().map((cell) => {
+                    const isCompany = cell.column.id === "company";
+                    return (
+                      <td
+                        key={cell.id}
+                        className={cn(
+                          "px-3 py-2 align-middle whitespace-nowrap",
+                          mobileHiddenSet.has(cell.column.id) &&
+                            "hidden md:table-cell",
+                          isCompany &&
+                            "sticky z-10 bg-background border-r border-border group-hover/row:bg-muted/30"
+                        )}
+                        style={
+                          isCompany
+                            ? { left: EDIT_COL_W, minWidth: COMPANY_COL_W }
+                            : undefined
+                        }
+                      >
+                        {flexRender(
+                          cell.column.columnDef.cell,
+                          cell.getContext()
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))
             )}

@@ -10,6 +10,7 @@ import type {
 } from "@/lib/db/types";
 import { ArrowUpDown } from "@/components/icons";
 import { updateRoleFieldAction } from "@/app/(app)/app/[id]/actions";
+import { LocationsCell } from "./locations-cell";
 import { RevertButton } from "./revert-button";
 import { TableInlineCell } from "./table-inline-cell";
 import {
@@ -18,8 +19,6 @@ import {
   formatCompensation,
   formatDate,
   formatDistance,
-  formatLocations,
-  formatGradYearWindow,
   formatTargetTerm,
 } from "./cell-formatters";
 import { InterviewPopover } from "./interview-popover";
@@ -164,7 +163,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
         )}
         <TableInlineCell<TargetSeason>
           value={row.original.role.target_season}
-          display={() => <span />}
+          display={(v) => (
+            <span className="capitalize text-muted-foreground">
+              {v.slice(0, 2)}
+            </span>
+          )}
           renderInput={({ draft, setDraft, commit, inputRef }) => (
             <select
               ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
@@ -221,21 +224,9 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     header: SORT_HEADER("Location"),
     cell: ({ row }) => (
       <span className="inline-flex items-center">
-        <TableInlineCell<string>
-          value={row.original.role.locations.map((l) => l.text).join(", ")}
-          display={() => formatLocations(row.original.role.locations)}
-          renderInput={({ draft, setDraft, commit, inputRef }) => (
-            <input
-              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
-              type="text"
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
-              onBlur={commit}
-              className={INPUT_CLS}
-              placeholder="San Francisco, NYC, Remote"
-            />
-          )}
-          onSave={(v) => updateRoleFieldAction(row.original.id, "locations", v)}
+        <LocationsCell
+          applicationId={row.original.id}
+          locations={row.original.role.locations}
         />
         {isDirty(row.original, "locations", row.original.role.locations) && (
           <RevertButton applicationId={row.original.id} field="locations" />
@@ -343,12 +334,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
       <span className="inline-flex items-center gap-1">
         <TableInlineCell<string>
           value={row.original.role.min_grad_year ? String(row.original.role.min_grad_year) : ""}
-          display={() =>
-            formatGradYearWindow(
-              row.original.role.min_grad_year,
-              row.original.role.max_grad_year
-            )
-          }
+          display={(v) => (
+            <span className={v ? "" : "text-muted-foreground"}>
+              {v || "min"}
+            </span>
+          )}
           renderInput={({ draft, setDraft, commit, inputRef }) => (
             <input
               ref={inputRef as React.MutableRefObject<HTMLInputElement>}
@@ -367,9 +357,14 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
         {isDirty(row.original, "min_grad_year", row.original.role.min_grad_year) && (
           <RevertButton applicationId={row.original.id} field="min_grad_year" />
         )}
+        <span className="text-muted-foreground">–</span>
         <TableInlineCell<string>
           value={row.original.role.max_grad_year ? String(row.original.role.max_grad_year) : ""}
-          display={() => <span />}
+          display={(v) => (
+            <span className={v ? "" : "text-muted-foreground"}>
+              {v || "max"}
+            </span>
+          )}
           renderInput={({ draft, setDraft, commit, inputRef }) => (
             <input
               ref={inputRef as React.MutableRefObject<HTMLInputElement>}
