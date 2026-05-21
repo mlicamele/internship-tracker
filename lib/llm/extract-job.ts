@@ -1,12 +1,10 @@
-// Sonnet-based job posting extractor. Takes whatever evidence we have
-// (rendered HTML excerpt, JSON-LD structured data, per-board parser hints,
-// user-pasted JD body) and returns a fully-structured job posting with
-// confidence per field.
+// Gemini 2.0 Flash-based job extractor. Free tier (15 RPM / 1500 RPD on
+// AI Studio) is more than enough for personal use. Uses Gemini's
+// responseSchema feature to force strict JSON output — no parse failures.
 //
-// This is the headline extraction call. Cost ~$0.01-0.02 per role at
-// current Sonnet 4.6 pricing.
+// Never throws — returns safe defaults on any error.
 
-import { anthropic, HAIKU_MODEL } from "@/lib/anthropic";
+import { GoogleGenAI, Type } from "@google/genai";
 import type {
   ClassYearTag,
   TargetSeason,
@@ -57,49 +55,26 @@ const CLASS_YEAR_VALUES = new Set([
   "junior_plus",
   "unspecified",
 ]);
-
 const TARGET_SEASON_VALUES = new Set(["summer", "fall", "winter", "spring"]);
-
 const WORK_MODEL_VALUES = new Set(["remote", "hybrid", "onsite", "unspecified"]);
 
-const SYSTEM_PROMPT = `You are extracting structured fields from a job/internship posting for an undergrad applicant.
+const SYSTEM_PROMPT = `You extract structured fields from a job/internship posting for an undergrad applicant.
 
-You receive a mix of evidence: rendered HTML excerpts, JSON-LD structured data, per-board parser hints, and possibly the URL itself. Your job: synthesize all evidence into the cleanest possible JSON output.
-
-Output STRICT JSON only — no markdown, no prose, no code fence.
-
-Schema:
-{
-  "company": string | null,
-  "title": string | null,
-  "location_text": string | null,
-  "jd_body": string,
-  "deadline_at": string | null,          // ISO 8601 timestamp
-  "posted_at": string | null,             // ISO 8601 timestamp
-  "work_model": "remote" | "hybrid" | "onsite" | "unspecified",
-  "target_year": number | null,           // year the internship occurs, e.g. 2027
-  "target_season": "summer" | "fall" | "winter" | "spring",
-  "class_year_tag": "freshman_ok" | "sophomore_ok" | "junior_plus" | "unspecified",
-  "class_year_confidence": number,        // 0.0 - 1.0
-  "compensation_text": string | null,     // verbatim comp text like "$50/hr + housing"
-  "compensation_hourly_cents": number | null,  // sortable hourly rate in cents; convert monthly/annual using 40hr/wk * 4.33wk/mo * 12mo/yr (≈2080hr/yr)
-  "overall_confidence": number,            // 0.0 - 1.0
-  "notes": string                          // 1 sentence: what was clear/unclear, internal only
-}
+You receive a mix of evidence: rendered HTML excerpts, JSON-LD structured data, per-board parser hints, optionally a user-pasted JD body. Synthesize all of it into the cleanest possible JSON output matching the response schema.
 
 Rules:
-- jd_body: clean plain text of the job description. Strip HTML, preserve paragraphs and bullet points. If you don't know the body, return empty string.
-- company: the hiring organization. Prefer JSON-LD hiringOrganization.name. If extracted from a URL hostname or path, capitalize properly (e.g., "anthropic" → "Anthropic").
-- title: role title only, no company name. e.g. "Software Engineer Intern" not "Anthropic - Software Engineer Intern".
-- location_text: brief human-readable location. "Remote", "San Francisco, CA", "Remote · San Francisco" for hybrid with HQ.
-- class_year_tag: who can apply (NOT the company's preference). "rising junior" or "must be junior" → junior_plus. "open to all class years" → freshman_ok. If unstated, unspecified.
-- target_year: the year the internship runs. "Summer 2027 SWE Intern" → 2027. If unstated, null.
-- target_season: "summer" if unstated (most common).
-- work_model: only if clearly stated. "Remote" / "Hybrid" / "On-site"/"In-office" → matching value. Else unspecified. "No remote" or "must be on-site" → onsite, not remote.
-- deadline_at and posted_at: use ISO 8601. If only a date, use YYYY-MM-DDT00:00:00Z. If the value is relative ("posted 2 weeks ago"), do your best.
-- compensation_text: verbatim shorthand if present. compensation_hourly_cents: convert to hourly cents if possible. "$50/hr" → 5000. "$8000/mo" → ~4615 (8000*100 / 173.33). "$80k/yr" → ~3846 (80000*100 / 2080).
-- confidence: be honest. If you're guessing, lower the score. If a field is null/unspecified, confidence should reflect that you don't know.
-- If the evidence is too sparse to extract anything meaningful, return mostly nulls with overall_confidence near 0.
+- company: the hiring organization. Prefer JSON-LD hiringOrganization.name. Capitalize properly ("anthropic" → "Anthropic"). NOT the job board name.
+- title: role title only, no company name. e.g. "Software Engineer Intern" not "Anthropic - SWE Intern".
+- location_text: brief human-readable location. "Remote", "San Francisco, CA", "Remote · NYC" for hybrid.
+- jd_body: clean plain text of the JD. Strip HTML, preserve paragraphs + bullets. Empty string if unknown.
+- class_year_tag: who can apply (NOT what the company prefers). "rising junior" or "must be junior" → junior_plus. "open to all class years" → freshman_ok. If unstated → unspecified.
+- target_year: year the internship runs. "Summer 2027 SWE Intern" → 2027. null if unstated.
+- target_season: "summer" if unstated (most common). Only fall/winter/spring if explicitly stated.
+- work_model: 'remote' only if clearly stated remote (not "no remote"). 'hybrid' for mixed. 'onsite'/'in-office' otherwise. 'unspecified' if not mentioned.
+- deadline_at / posted_at: ISO 8601. If only a date, use YYYY-MM-DDT00:00:00Z. Honest "unknown" → null.
+- compensation_text: verbatim if present. compensation_hourly_cents: hourly cents equivalent. "$50/hr" → 5000. "$8000/mo" ≈ 4615 (×100/173.33). "$80k/yr" ≈ 3846 (×100/2080).
+- confidence: 0-1. Be honest. Unspecified/null fields should have low per-field reflection in overall_confidence.
+- notes: 1 sentence, internal only.
 
 DO NOT fabricate. Prefer null over a wrong guess.`;
 
@@ -119,15 +94,87 @@ export interface ExtractJobInput {
 const MAX_HTML_CHARS = 12000;
 const MAX_BODY_CHARS = 8000;
 
-/**
- * Extract a fully-structured job posting via Sonnet. Always resolves; returns
- * safe defaults on any failure. Caller should check overall_confidence and
- * mark missing fields for user editing.
- */
+const RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    company: { type: Type.STRING, nullable: true },
+    title: { type: Type.STRING, nullable: true },
+    location_text: { type: Type.STRING, nullable: true },
+    jd_body: { type: Type.STRING },
+    deadline_at: { type: Type.STRING, nullable: true },
+    posted_at: { type: Type.STRING, nullable: true },
+    work_model: {
+      type: Type.STRING,
+      enum: ["remote", "hybrid", "onsite", "unspecified"],
+    },
+    target_year: { type: Type.INTEGER, nullable: true },
+    target_season: {
+      type: Type.STRING,
+      enum: ["summer", "fall", "winter", "spring"],
+    },
+    class_year_tag: {
+      type: Type.STRING,
+      enum: ["freshman_ok", "sophomore_ok", "junior_plus", "unspecified"],
+    },
+    class_year_confidence: { type: Type.NUMBER },
+    compensation_text: { type: Type.STRING, nullable: true },
+    compensation_hourly_cents: { type: Type.INTEGER, nullable: true },
+    overall_confidence: { type: Type.NUMBER },
+    notes: { type: Type.STRING },
+  },
+  required: [
+    "company",
+    "title",
+    "location_text",
+    "jd_body",
+    "deadline_at",
+    "posted_at",
+    "work_model",
+    "target_year",
+    "target_season",
+    "class_year_tag",
+    "class_year_confidence",
+    "compensation_text",
+    "compensation_hourly_cents",
+    "overall_confidence",
+    "notes",
+  ],
+  propertyOrdering: [
+    "company",
+    "title",
+    "location_text",
+    "jd_body",
+    "deadline_at",
+    "posted_at",
+    "work_model",
+    "target_year",
+    "target_season",
+    "class_year_tag",
+    "class_year_confidence",
+    "compensation_text",
+    "compensation_hourly_cents",
+    "overall_confidence",
+    "notes",
+  ],
+} as const;
+
+let _client: GoogleGenAI | null = null;
+function client(): GoogleGenAI {
+  if (!_client) {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      throw new Error(
+        "GEMINI_API_KEY missing. Get one free at https://aistudio.google.com/apikey and add to .env.local + Vercel."
+      );
+    }
+    _client = new GoogleGenAI({ apiKey });
+  }
+  return _client;
+}
+
 export async function extractJobFromEvidence(
   input: ExtractJobInput
 ): Promise<ExtractedJob> {
-  // Build the prompt context: most useful evidence first
   const sections: string[] = [];
   sections.push(`URL: ${input.url}`);
 
@@ -158,7 +205,6 @@ export async function extractJobFromEvidence(
   }
 
   if (sections.length === 1) {
-    // Only the URL is known — can't extract much
     return {
       ...SAFE_DEFAULT,
       jd_url: input.url,
@@ -167,35 +213,30 @@ export async function extractJobFromEvidence(
   }
 
   try {
-    const response = await anthropic().messages.create({
-      model: HAIKU_MODEL,
-      max_tokens: 2000,
-      temperature: 0,
-      system: SYSTEM_PROMPT,
-      messages: [
-        {
-          role: "user",
-          content: sections.join("\n\n---\n\n"),
-        },
-      ],
+    const response = await client().models.generateContent({
+      model: "gemini-2.0-flash",
+      contents: sections.join("\n\n---\n\n"),
+      config: {
+        systemInstruction: SYSTEM_PROMPT,
+        responseMimeType: "application/json",
+        responseSchema: RESPONSE_SCHEMA,
+        temperature: 0,
+        maxOutputTokens: 4000,
+      },
     });
 
-    const textBlock = response.content.find((b) => b.type === "text");
-    if (!textBlock || textBlock.type !== "text") {
-      return { ...SAFE_DEFAULT, jd_url: input.url, notes: "no text block" };
+    const text = response.text;
+    if (!text) {
+      return { ...SAFE_DEFAULT, jd_url: input.url, notes: "empty response" };
     }
 
-    const raw = textBlock.text.trim();
-    const jsonMatch = raw.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      return { ...SAFE_DEFAULT, jd_url: input.url, notes: "no JSON found" };
-    }
-
-    const parsed = JSON.parse(jsonMatch[0]) as Record<string, unknown>;
+    const parsed = JSON.parse(text) as Record<string, unknown>;
 
     return {
-      company: typeof parsed.company === "string" ? parsed.company.trim() || null : null,
-      title: typeof parsed.title === "string" ? parsed.title.trim() || null : null,
+      company:
+        typeof parsed.company === "string" ? parsed.company.trim() || null : null,
+      title:
+        typeof parsed.title === "string" ? parsed.title.trim() || null : null,
       location_text:
         typeof parsed.location_text === "string"
           ? parsed.location_text.trim() || null

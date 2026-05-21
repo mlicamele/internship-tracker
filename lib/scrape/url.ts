@@ -12,7 +12,7 @@ import * as cheerio from "cheerio";
 import {
   extractJobFromEvidence,
   type ExtractedJob,
-} from "@/lib/anthropic/extract-job";
+} from "@/lib/llm/extract-job";
 import {
   extractJobLd,
   flattenLocation,

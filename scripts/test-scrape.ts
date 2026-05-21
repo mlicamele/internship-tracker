@@ -27,9 +27,8 @@ if (args[0] === "--" && args[1]) {
   urls = JSON.parse(raw);
 }
 
-if (!process.env.ANTHROPIC_API_KEY) {
-  console.error("ANTHROPIC_API_KEY missing. Did you load .env.local?");
-  console.error("Try: env $(cat .env.local | xargs) npx tsx scripts/test-scrape.ts");
+if (!process.env.GEMINI_API_KEY) {
+  console.error("GEMINI_API_KEY missing. Get one free at https://aistudio.google.com/apikey, add to .env.local.");
   process.exit(1);
 }
 
