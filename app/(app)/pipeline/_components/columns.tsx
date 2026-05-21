@@ -19,9 +19,8 @@ import {
   formatCompensation,
   formatDate,
   formatDistance,
-  formatTargetTerm,
 } from "./cell-formatters";
-import { InterviewPopover } from "./interview-popover";
+import { InterviewsCell } from "./interviews-cell";
 import { StatusCell } from "./status-cell";
 
 export interface PipelineRow extends ApplicationRow {
@@ -140,8 +139,8 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
         <TableInlineCell<string>
           value={row.original.role.target_year ? String(row.original.role.target_year) : ""}
           display={(v) => (
-            <span>
-              {formatTargetTerm(v ? Number(v) : null, row.original.role.target_season)}
+            <span className={v ? "" : "text-muted-foreground"}>
+              {v || "—"}
             </span>
           )}
           renderInput={({ draft, setDraft, commit, inputRef }) => (
@@ -153,7 +152,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onBlur={commit}
-              className={`${INPUT_CLS} w-16`}
+              className={`${INPUT_CLS} w-20`}
             />
           )}
           onSave={(v) => updateRoleFieldAction(row.original.id, "target_year", v)}
@@ -164,9 +163,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
         <TableInlineCell<TargetSeason>
           value={row.original.role.target_season}
           display={(v) => (
-            <span className="capitalize text-muted-foreground">
-              {v.slice(0, 2)}
-            </span>
+            <span className="capitalize text-muted-foreground">{v}</span>
           )}
           renderInput={({ draft, setDraft, commit, inputRef }) => (
             <select
@@ -323,7 +320,11 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           : Number.POSITIVE_INFINITY,
     header: SORT_HEADER("Next interview"),
     cell: ({ row }) => (
-      <InterviewPopover interview={row.original.next_interview} />
+      <InterviewsCell
+        applicationId={row.original.id}
+        interviews={row.original.interviews}
+        nextInterview={row.original.next_interview}
+      />
     ),
   },
   {

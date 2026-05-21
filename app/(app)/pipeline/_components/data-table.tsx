@@ -124,11 +124,11 @@ export function PipelineTable({
               visibleRows.map((row) => (
                 <tr
                   key={row.id}
-                  className="group/row border-b border-border last:border-b-0 transition-colors hover:bg-muted/30"
+                  className="group/row border-b border-border last:border-b-0 transition-colors hover:bg-muted"
                 >
                   {/* Sticky: open-detail button */}
                   <td
-                    className="sticky left-0 z-20 bg-background px-1 py-2 group-hover/row:bg-muted/30"
+                    className="sticky left-0 z-20 bg-background px-1 py-2 group-hover/row:bg-muted"
                     style={{ width: EDIT_COL_W, minWidth: EDIT_COL_W }}
                   >
                     <Link
@@ -150,7 +150,7 @@ export function PipelineTable({
                           mobileHiddenSet.has(cell.column.id) &&
                             "hidden md:table-cell",
                           isCompany &&
-                            "sticky z-10 bg-background border-r border-border group-hover/row:bg-muted/30"
+                            "sticky z-10 bg-background border-r border-border group-hover/row:bg-muted"
                         )}
                         style={
                           isCompany

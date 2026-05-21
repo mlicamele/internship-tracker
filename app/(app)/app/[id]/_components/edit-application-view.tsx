@@ -15,6 +15,7 @@ import type {
   WorkModel,
 } from "@/lib/db/types";
 import { Plus } from "@/components/icons";
+import { LocationsEditor } from "@/components/locations-editor";
 import { transitionStatusAction } from "@/app/(app)/pipeline/actions";
 import { ConfidenceBadge } from "./confidence-badge";
 import { InterviewCard } from "./interview-card";
@@ -461,7 +462,7 @@ export function EditApplicationView({
             />
           </Field>
           <Field
-            label="Locations (one per line)"
+            label="Locations"
             wide
             confidence={conf.locations}
             canRevert={
@@ -470,12 +471,9 @@ export function EditApplicationView({
             }
             onRevert={() => revertField("locations")}
           >
-            <textarea
-              rows={Math.max(2, draft.locations.split("\n").length)}
-              value={draft.locations}
-              onChange={(e) => update("locations", e.target.value)}
-              className={TEXTAREA_CLS}
-              placeholder="San Francisco, CA&#10;New York, NY"
+            <LocationsEditor
+              value={draft.locations.split("\n").filter(Boolean)}
+              onChange={(arr) => update("locations", arr.join("\n"))}
             />
           </Field>
           <Field

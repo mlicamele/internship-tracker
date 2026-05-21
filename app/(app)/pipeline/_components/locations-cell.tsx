@@ -3,12 +3,12 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import type { RoleLocation } from "@/lib/db/types";
 import { updateRoleFieldAction } from "@/app/(app)/app/[id]/actions";
+import { LocationsEditor } from "@/components/locations-editor";
 import { formatLocations } from "./cell-formatters";
 
 /**
- * Click-to-edit locations cell. Opens a popover with the current list
- * (each row deletable) plus an add-input. Saves the joined list as a
- * comma/newline-separated string via updateRoleFieldAction.
+ * Inline locations cell. Hover shows a read-only list preview. Click opens
+ * the popover editor with Save / Cancel.
  */
 export function LocationsCell({
   applicationId,
@@ -18,14 +18,14 @@ export function LocationsCell({
   locations: RoleLocation[];
 }) {
   const [open, setOpen] = useState(false);
+  const [hover, setHover] = useState(false);
   const [draft, setDraft] = useState<string[]>(() =>
     locations.map((l) => l.text)
   );
-  const [newEntry, setNewEntry] = useState("");
   const [pending, startTransition] = useTransition();
   const ref = useRef<HTMLDivElement | null>(null);
 
-  // Resync when the server-side locations change while the popover is closed
+  // Resync when server data changes while the editor is closed
   useEffect(() => {
     if (!open) {
       // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -33,7 +33,7 @@ export function LocationsCell({
     }
   }, [locations, open]);
 
-  // Close on outside click / escape
+  // Close edit popover on outside click / Escape
   useEffect(() => {
     if (!open) return;
     function onDown(e: MouseEvent) {
@@ -53,23 +53,7 @@ export function LocationsCell({
 
   function cancel() {
     setDraft(locations.map((l) => l.text));
-    setNewEntry("");
     setOpen(false);
-  }
-
-  function add() {
-    const t = newEntry.trim();
-    if (!t) return;
-    if (draft.some((s) => s.toLowerCase() === t.toLowerCase())) {
-      setNewEntry("");
-      return;
-    }
-    setDraft((d) => [...d, t]);
-    setNewEntry("");
-  }
-
-  function remove(idx: number) {
-    setDraft((d) => d.filter((_, i) => i !== idx));
   }
 
   function save() {
@@ -80,8 +64,16 @@ export function LocationsCell({
     });
   }
 
+  // Hover preview shows only when the edit popover is closed
+  const showHoverPreview = hover && !open && locations.length > 0;
+
   return (
-    <div ref={ref} className="relative inline-flex">
+    <div
+      ref={ref}
+      className="relative inline-flex"
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+    >
       <button
         type="button"
         onClick={(e) => {
@@ -92,56 +84,28 @@ export function LocationsCell({
       >
         {formatLocations(locations)}
       </button>
+
+      {showHoverPreview && (
+        <div
+          role="tooltip"
+          className="pointer-events-none absolute left-0 top-full z-40 mt-1 w-56 rounded-md border border-border bg-popover p-2 text-xs text-popover-foreground shadow-md"
+        >
+          <ul className="space-y-0.5">
+            {locations.map((loc, i) => (
+              <li key={i} className="truncate">
+                {loc.text}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       {open && (
         <div
           onClick={(e) => e.stopPropagation()}
           className="absolute left-0 top-full z-50 mt-1 w-72 space-y-2 rounded-md border border-border bg-popover p-3 text-popover-foreground shadow-md"
         >
-          {draft.length === 0 && (
-            <p className="text-xs italic text-muted-foreground">
-              No locations.
-            </p>
-          )}
-          <ul className="space-y-1">
-            {draft.map((loc, idx) => (
-              <li
-                key={`${loc}-${idx}`}
-                className="flex items-center justify-between gap-2 rounded-sm px-1 py-0.5 hover:bg-muted/40"
-              >
-                <span className="truncate text-sm">{loc}</span>
-                <button
-                  type="button"
-                  onClick={() => remove(idx)}
-                  className="text-xs text-muted-foreground hover:text-destructive"
-                  aria-label={`Remove ${loc}`}
-                >
-                  ✕
-                </button>
-              </li>
-            ))}
-          </ul>
-          <div className="flex items-center gap-1 border-t border-border/60 pt-2">
-            <input
-              type="text"
-              value={newEntry}
-              onChange={(e) => setNewEntry(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  add();
-                }
-              }}
-              placeholder="Add location…"
-              className="h-7 w-full rounded-sm border border-input bg-transparent px-1.5 text-xs"
-            />
-            <button
-              type="button"
-              onClick={add}
-              className="rounded-sm px-2 py-1 text-xs hover:bg-muted"
-            >
-              +
-            </button>
-          </div>
+          <LocationsEditor value={draft} onChange={setDraft} />
           <div className="flex justify-end gap-2 border-t border-border/60 pt-2">
             <button
               type="button"
