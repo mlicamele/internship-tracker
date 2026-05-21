@@ -52,7 +52,9 @@ export function TableTextField({
 >) {
   const [draft, setDraft] = useState(value);
   const [, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
   const lastCommitted = useRef(value);
+  const errorTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Resync when server data changes underneath us. Conditional inside the
   // effect means the lint rule doesn't fire on every render.
@@ -63,22 +65,44 @@ export function TableTextField({
     }
   }, [value]);
 
+  useEffect(() => {
+    return () => {
+      if (errorTimer.current) clearTimeout(errorTimer.current);
+    };
+  }, []);
+
+  function flashError(msg: string) {
+    setError(msg);
+    if (errorTimer.current) clearTimeout(errorTimer.current);
+    errorTimer.current = setTimeout(() => setError(null), 4000);
+  }
+
   function commit() {
     if (draft === lastCommitted.current) return;
-    lastCommitted.current = draft;
+    const next = draft;
     startTransition(async () => {
-      await onSave(draft);
+      const result = await onSave(next);
+      if (result && typeof result === "object" && "ok" in result && !result.ok) {
+        // Server rejected (usually a range / validation error). Revert and
+        // surface the message so the user knows what's allowed.
+        setDraft(lastCommitted.current);
+        flashError(result.error);
+      } else {
+        lastCommitted.current = next;
+      }
     });
   }
 
   function cancel() {
     setDraft(lastCommitted.current);
+    setError(null);
   }
 
   return (
     <span
       className={cn(
-        "inline-flex h-7 items-center gap-1 rounded-sm px-1.5 focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary",
+        "relative inline-flex h-7 items-center gap-1 rounded-sm px-1.5 focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary",
+        error && "ring-2 ring-inset ring-destructive",
         className
       )}
       onClick={(e) => e.stopPropagation()}
@@ -109,6 +133,14 @@ export function TableTextField({
         )}
       />
       {suffix && <span className="text-muted-foreground">{suffix}</span>}
+      {error && (
+        <span
+          role="alert"
+          className="absolute left-0 top-full z-50 mt-1 max-w-xs whitespace-normal rounded-sm border border-destructive bg-popover px-2 py-1 text-xs text-destructive shadow-md"
+        >
+          {error}
+        </span>
+      )}
     </span>
   );
 }
