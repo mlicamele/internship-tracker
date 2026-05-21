@@ -38,7 +38,9 @@ export function StatusCell({
           <DropdownMenuItem
             key={value}
             disabled={value === status}
-            onSelect={() => {
+            onClick={(e) => {
+              e.stopPropagation();
+              if (value === status) return;
               startTransition(async () => {
                 await transitionStatusAction(applicationId, value);
               });
