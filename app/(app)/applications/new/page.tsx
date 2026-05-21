@@ -18,8 +18,6 @@ export default async function NewApplicationPage({
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const defaultTargetYear = new Date().getFullYear() + 1;
-
   return (
     <div className="mx-auto max-w-2xl space-y-6">
       <header className="space-y-1">
@@ -31,14 +29,11 @@ export default async function NewApplicationPage({
         </Link>
         <h1 className="text-xl font-semibold tracking-tight">New application</h1>
         <p className="text-sm text-muted-foreground">
-          Capture everything now — easier than coming back later.
+          Paste a URL or JD body. Edit the rest on the detail page.
         </p>
       </header>
 
-      <NewApplicationForm
-        defaultTargetYear={defaultTargetYear}
-        error={error}
-      />
+      <NewApplicationForm error={error} />
     </div>
   );
 }

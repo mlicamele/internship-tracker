@@ -69,6 +69,39 @@ export async function create(
   return data as Role;
 }
 
+export type RoleUpdate = Partial<{
+  title: string;
+  location_text: string | null;
+  role_lat: number | null;
+  role_lng: number | null;
+  jd_url: string | null;
+  jd_body_text: string | null;
+  deadline_at: string | null;
+  posted_at: string | null;
+  class_year_tag: ClassYearTag;
+  class_year_confidence: number | null;
+  target_year: number | null;
+  target_season: TargetSeason;
+  work_model: WorkModel;
+  compensation_text: string | null;
+  compensation_hourly_cents: number | null;
+}>;
+
+export async function updateRole(
+  supabase: SupabaseClient,
+  roleId: string,
+  patch: RoleUpdate
+): Promise<Role> {
+  const { data, error } = await supabase
+    .from("roles")
+    .update(patch)
+    .eq("id", roleId)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as Role;
+}
+
 export async function getById(
   supabase: SupabaseClient,
   roleId: string

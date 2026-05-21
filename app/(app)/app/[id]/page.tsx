@@ -5,7 +5,7 @@ import { listForApplication as listInterviews } from "@/lib/db/interviews";
 import { listForApplication as listStatusEvents } from "@/lib/db/status-events";
 import { get as getCompanyNote } from "@/lib/db/company_notes";
 import { DetailHeader } from "./_components/header";
-import { MetadataRow } from "./_components/metadata-row";
+import { EditableMetadataRow } from "./_components/editable-metadata-row";
 import { NotesEditor } from "./_components/notes-editor";
 import { InterviewsSection } from "./_components/interviews-section";
 import { CompanyNotesSection } from "./_components/company-notes-section";
@@ -43,7 +43,7 @@ export default async function ApplicationDetailPage({
     <article className="mx-auto max-w-3xl space-y-8">
       <DetailHeader application={application} />
 
-      <MetadataRow application={application} />
+      <EditableMetadataRow application={application} />
 
       <NotesEditor
         applicationId={application.id}
