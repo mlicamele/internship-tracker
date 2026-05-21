@@ -2,6 +2,7 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
+  ConfidenceTier,
   RelocationAssistance,
   Role,
   RoleLocation,
@@ -19,20 +20,18 @@ export interface CreateRoleInput {
   deadlineAt?: string | null;
   postedAt?: string | null;
   maxGradYear?: number | null;
-  relocationAssistance?: RelocationAssistance;
+  relocationAssistance?: RelocationAssistance | null;
   source: RoleSource;
   sourceExternalId?: string | null;
   targetYear?: number | null;
   targetSeason?: TargetSeason;
-  workModel?: WorkModel;
+  workModel?: WorkModel | null;
   compensationHourlyDollars?: number | null;
-  extractionConfidences?: Record<string, number>;
+  extractionConfidences?: Record<string, ConfidenceTier>;
 }
 
 const ROLE_INSERT_DEFAULTS = {
   target_season: "summer" as TargetSeason,
-  work_model: "unspecified" as WorkModel,
-  relocation_assistance: "unspecified" as RelocationAssistance,
 };
 
 export async function create(
@@ -51,13 +50,12 @@ export async function create(
       deadline_at: input.deadlineAt ?? null,
       posted_at: input.postedAt ?? null,
       max_grad_year: input.maxGradYear ?? null,
-      relocation_assistance:
-        input.relocationAssistance ?? ROLE_INSERT_DEFAULTS.relocation_assistance,
+      relocation_assistance: input.relocationAssistance ?? null,
       source: input.source,
       source_external_id: input.sourceExternalId ?? null,
       target_year: input.targetYear ?? null,
       target_season: input.targetSeason ?? ROLE_INSERT_DEFAULTS.target_season,
-      work_model: input.workModel ?? ROLE_INSERT_DEFAULTS.work_model,
+      work_model: input.workModel ?? null,
       compensation_hourly_dollars: input.compensationHourlyDollars ?? null,
       extraction_confidences: input.extractionConfidences ?? {},
     })
@@ -75,12 +73,12 @@ export type RoleUpdate = Partial<{
   deadline_at: string | null;
   posted_at: string | null;
   max_grad_year: number | null;
-  relocation_assistance: RelocationAssistance;
+  relocation_assistance: RelocationAssistance | null;
   target_year: number | null;
   target_season: TargetSeason;
-  work_model: WorkModel;
+  work_model: WorkModel | null;
   compensation_hourly_dollars: number | null;
-  extraction_confidences: Record<string, number>;
+  extraction_confidences: Record<string, ConfidenceTier>;
 }>;
 
 export async function updateRole(

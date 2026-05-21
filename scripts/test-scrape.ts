@@ -126,7 +126,7 @@ async function main() {
       const v = r.extracted[k];
       const display = displayValue(v);
       const conf = r.extracted.confidences?.[k];
-      const confStr = conf !== undefined ? ` \x1b[90m[${Math.round(conf * 100)}%]\x1b[0m` : "";
+      const confStr = conf !== undefined ? ` \x1b[90m[${conf}]\x1b[0m` : "";
       console.log(`  ${k.padEnd(28)} ${display}${confStr}`);
     }
     if (r.extracted.jd_body) {
@@ -157,8 +157,8 @@ function isFieldFilled(v: unknown): boolean {
 }
 
 function displayValue(v: unknown): string {
-  if (v === null || v === undefined || v === "") return "\x1b[90m∅\x1b[0m";
-  if (v === "unspecified") return "\x1b[90munspecified\x1b[0m";
+  if (v === null || v === undefined || v === "" || v === "unspecified")
+    return "\x1b[90m∅\x1b[0m";
   if (Array.isArray(v)) {
     if (v.length === 0) return "\x1b[90m∅\x1b[0m";
     return v

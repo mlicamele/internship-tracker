@@ -8,6 +8,7 @@
 
 import Groq from "groq-sdk";
 import type {
+  ConfidenceTier,
   RelocationAssistance,
   TargetSeason,
   WorkModel,
@@ -22,16 +23,16 @@ export interface ExtractedJob {
   jd_url: string | null;
   deadline_at: string | null;
   posted_at: string | null;
-  work_model: WorkModel;
+  work_model: WorkModel | null;
   target_year: number | null;
   target_season: TargetSeason;
   /** Latest graduation year still eligible (e.g. 2029 = "must graduate by 2029"). Null if not stated. */
   max_grad_year: number | null;
-  relocation_assistance: RelocationAssistance;
+  relocation_assistance: RelocationAssistance | null;
   /** Hourly rate in whole dollars (e.g. 50 for $50/hr). Null if not stated or non-numeric. */
   compensation_hourly_dollars: number | null;
-  /** Per-field confidence 0..1. Keys mirror the field names. Missing keys = no signal. */
-  confidences: Record<string, number>;
+  /** Per-field confidence tier. Keys mirror the field names. Missing keys = no signal. */
+  confidences: Record<string, ConfidenceTier>;
   overall_confidence: number;
   notes: string;
 }
@@ -44,11 +45,11 @@ const SAFE_DEFAULT: ExtractedJob = {
   jd_url: null,
   deadline_at: null,
   posted_at: null,
-  work_model: "unspecified",
+  work_model: null,
   target_year: null,
   target_season: "summer",
   max_grad_year: null,
-  relocation_assistance: "unspecified",
+  relocation_assistance: null,
   compensation_hourly_dollars: null,
   confidences: {},
   overall_confidence: 0,
@@ -56,8 +57,8 @@ const SAFE_DEFAULT: ExtractedJob = {
 };
 
 const TARGET_SEASON_VALUES = new Set(["summer", "fall", "winter", "spring"]);
-const WORK_MODEL_VALUES = new Set(["remote", "hybrid", "onsite", "unspecified"]);
-const RELOCATION_VALUES = new Set(["provided", "not_provided", "unspecified"]);
+const WORK_MODEL_VALUES = new Set(["remote", "hybrid", "onsite"]);
+const RELOCATION_VALUES = new Set(["provided", "not_provided"]);
 
 const SYSTEM_PROMPT = `You extract structured fields from a job/internship posting for an undergrad applicant.
 
@@ -72,24 +73,24 @@ OUTPUT STRICT JSON ONLY — no markdown, no prose, no code fence. Match this exa
   "jd_body": string,
   "deadline_at": string | null,           // ISO 8601 like "2026-06-15T00:00:00Z"
   "posted_at": string | null,             // ISO 8601
-  "work_model": "remote" | "hybrid" | "onsite" | "unspecified",
+  "work_model": "remote" | "hybrid" | "onsite" | null,
   "target_year": integer | null,           // e.g. 2027
   "target_season": "summer" | "fall" | "winter" | "spring",
   "max_grad_year": integer | null,         // latest grad year still eligible; null if open / unstated
-  "relocation_assistance": "provided" | "not_provided" | "unspecified",
+  "relocation_assistance": "provided" | "not_provided" | null,
   "compensation_hourly_dollars": integer | null,
-  "confidences": {                         // per-field 0.0-1.0 confidence. Omit a key entirely if no signal at all (don't set to 0).
-    "company": number,
-    "title": number,
-    "locations": number,
-    "deadline_at": number,
-    "posted_at": number,
-    "work_model": number,
-    "target_year": number,
-    "target_season": number,
-    "max_grad_year": number,
-    "relocation_assistance": number,
-    "compensation_hourly_dollars": number
+  "confidences": {                         // per-field "high" | "medium" | "low". Omit a key entirely if no signal.
+    "company": "high"|"medium"|"low",
+    "title": "high"|"medium"|"low",
+    "locations": "high"|"medium"|"low",
+    "deadline_at": "high"|"medium"|"low",
+    "posted_at": "high"|"medium"|"low",
+    "work_model": "high"|"medium"|"low",
+    "target_year": "high"|"medium"|"low",
+    "target_season": "high"|"medium"|"low",
+    "max_grad_year": "high"|"medium"|"low",
+    "relocation_assistance": "high"|"medium"|"low",
+    "compensation_hourly_dollars": "high"|"medium"|"low"
   },
   "overall_confidence": number,            // 0.0 - 1.0
   "notes": string                          // 1 sentence internal-only summary
@@ -117,21 +118,19 @@ Rules:
        Example (target_year=2027): "Rising junior+ for Summer 2027" → max_grad_year = 2029.
        Example (target_year=2027): "Rising senior only" → max_grad_year = 2028.
     DO NOT INFER from weak context like "Summer 2027 Intern" alone, "CS student", "undergraduate" alone, or job seniority. If the JD doesn't explicitly state eligibility via grad year OR class year, return null with confidence 0. Prefer null over a guess.
-- confidences: emit a per-field confidence for EVERY field you populated with a non-null/non-default value. Calibration:
-    * 0.95+: pulled directly from a clearly-labeled JSON-LD / structured field
-    * 0.80-0.94: explicitly stated in the JD prose with unambiguous wording
-    * 0.60-0.79: stated but with some ambiguity (e.g. multiple candidate values, geo-specific pay range)
-    * 0.40-0.59: weak inference (e.g. work_model="onsite" because location is a city and no remote language mentioned)
-    * < 0.40: don't include the field — return null/default instead
-  If a field is null, default, or "unspecified", OMIT its key from the confidences object entirely. Do NOT emit 0 for missing fields.
+- confidences: emit a confidence TIER for every field you populated with a non-null/non-default value. Three values only:
+    * "high"   — pulled directly from a clearly-labeled structured source (JSON-LD field, board-API field) OR an unambiguous explicit statement in the JD prose
+    * "medium" — stated in prose with some interpretation needed (e.g. multiple candidate values, geo-specific pay range, derived from "rising junior" + target_year)
+    * "low"    — weak inference (e.g. work_model="onsite" because location is a city and no remote language was used). If you would have given less than this, OMIT the field instead.
+  If a field is null, default, or "unspecified", OMIT its key from the confidences object entirely. Do NOT emit "low" for missing fields.
 - relocation_assistance: does the company SUPPORT the candidate moving for the role?
     * "Relocation assistance provided" / "we will help you relocate" / "housing stipend" / "corporate housing" / "relocation reimbursement" / "visa sponsorship for relocation" → "provided"
     * "Local candidates only" / "no relocation assistance" / "must already reside in X" → "not_provided"
-    * Remote roles where no relocation is needed → "unspecified" (it's irrelevant, not "not_provided")
-    * If not mentioned → "unspecified"
+    * Remote roles where no relocation is needed → null (it's irrelevant, not "not_provided")
+    * If not mentioned → null
 - target_year: year the internship runs. "Summer 2027 SWE Intern" → 2027. Null if unstated.
 - target_season: "summer" default (most common). Only other if explicit.
-- work_model: "remote" only if explicitly stated remote (NOT "no remote"). "hybrid" for mixed. "onsite" / "in-office" otherwise. "unspecified" if not mentioned.
+- work_model: "remote" only if explicitly stated remote (NOT "no remote"). "hybrid" for mixed. "onsite" / "in-office" otherwise. null if not mentioned.
 - deadline_at / posted_at: ISO 8601 string. Only date → "YYYY-MM-DDT00:00:00Z". Unknown → null.
 - compensation_hourly_dollars: whole-dollar hourly rate as an integer. SOURCE RULE: if a "Compensation context" section is provided, use ONLY that section as your source for compensation — do NOT pull dollar figures from the jd_body, htmlExcerpt, or anywhere else. The comp-context windows were extracted specifically because they contain pay-keywords + dollar figures; numbers elsewhere in the page (revenue figures, customer counts, "22+ million customers", market sizes, AUM, etc.) are NOT compensation. If NO Compensation context is provided, then you may fall back to scanning the JD body for explicit pay statements.
   VERIFY relevance: within the Compensation context, check each figure refers to THIS role, not a different one. Same-page sidebars, "Related Openings", "Other Programs", "PEAK6 Trials", residency/founder/fellowship listings, or any pay number tied to a DIFFERENT job title than the one we're extracting → IGNORE. If the context is ambiguous or you can't tell which role the pay applies to, return null.
@@ -288,7 +287,7 @@ export async function extractJobFromEvidence(
       posted_at: parseIsoDate(parsed.posted_at),
       work_model: WORK_MODEL_VALUES.has(parsed.work_model as string)
         ? (parsed.work_model as WorkModel)
-        : "unspecified",
+        : null,
       target_year: parseTargetYear(parsed.target_year),
       target_season: TARGET_SEASON_VALUES.has(parsed.target_season as string)
         ? (parsed.target_season as TargetSeason)
@@ -298,7 +297,7 @@ export async function extractJobFromEvidence(
         parsed.relocation_assistance as string
       )
         ? (parsed.relocation_assistance as RelocationAssistance)
-        : "unspecified",
+        : null,
       compensation_hourly_dollars:
         typeof parsed.compensation_hourly_dollars === "number" &&
         Number.isFinite(parsed.compensation_hourly_dollars) &&
@@ -358,14 +357,22 @@ function parseConfidence(v: unknown): number {
   return Math.max(0, Math.min(1, v));
 }
 
-function parseConfidencesMap(v: unknown): Record<string, number> {
+const TIER_VALUES = new Set<ConfidenceTier>(["high", "medium", "low"]);
+
+function parseConfidencesMap(v: unknown): Record<string, ConfidenceTier> {
   if (!v || typeof v !== "object") return {};
-  const out: Record<string, number> = {};
+  const out: Record<string, ConfidenceTier> = {};
   for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-    if (typeof val !== "number" || !Number.isFinite(val)) continue;
-    const clamped = Math.max(0, Math.min(1, val));
-    if (clamped <= 0) continue; // omit zero / negative; absence = no signal
-    out[k] = clamped;
+    if (typeof val === "string" && TIER_VALUES.has(val as ConfidenceTier)) {
+      out[k] = val as ConfidenceTier;
+      continue;
+    }
+    // Legacy: numeric 0..1. Bucket the same way the migration does.
+    if (typeof val === "number" && Number.isFinite(val)) {
+      if (val >= 0.85) out[k] = "high";
+      else if (val >= 0.6) out[k] = "medium";
+      else if (val > 0) out[k] = "low";
+    }
   }
   return out;
 }

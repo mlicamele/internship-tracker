@@ -11,10 +11,9 @@
 
 export type RelocationTolerance = "nope" | "regional" | "anywhere";
 
-export type RelocationAssistance =
-  | "provided"
-  | "not_provided"
-  | "unspecified";
+export type RelocationAssistance = "provided" | "not_provided";
+
+export type ConfidenceTier = "high" | "medium" | "low";
 
 export type RoleSource = "paste_url" | "scrape_simplify" | "manual";
 
@@ -35,7 +34,7 @@ export type ApplicationStatus =
 
 export type TargetSeason = "summer" | "fall" | "winter" | "spring";
 
-export type WorkModel = "remote" | "hybrid" | "onsite" | "unspecified";
+export type WorkModel = "remote" | "hybrid" | "onsite";
 
 export type InterviewType =
   | "phone_screen"
@@ -93,15 +92,15 @@ export interface Role {
   posted_at: string | null;
   /** Latest graduation year still eligible for this role. Null = open to all years. */
   max_grad_year: number | null;
-  relocation_assistance: RelocationAssistance;
-  /** Per-field confidence map emitted by the LLM extractor (0..1). Missing keys = no signal / manually edited. */
-  extraction_confidences: Record<string, number>;
+  relocation_assistance: RelocationAssistance | null;
+  /** Per-field confidence tier emitted by the LLM extractor. Missing keys = no signal / manually edited. */
+  extraction_confidences: Record<string, ConfidenceTier>;
   source: RoleSource;
   source_external_id: string | null;
   // Added in migration 0002
   target_year: number | null;
   target_season: TargetSeason;
-  work_model: WorkModel;
+  work_model: WorkModel | null;
   /** Hourly rate in whole dollars (e.g. 50 for $50/hr). Null if unknown or non-numeric comp. */
   compensation_hourly_dollars: number | null;
   created_at: string;

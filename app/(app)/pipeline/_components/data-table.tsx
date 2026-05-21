@@ -1,19 +1,22 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Fragment, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   type ColumnFiltersState,
+  type ExpandedState,
   type SortingState,
   type VisibilityState,
   flexRender,
   getCoreRowModel,
+  getExpandedRowModel,
   getFilteredRowModel,
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
-import { ChevronRight } from "@/components/icons";
+import { ChevronRight, ChevronDown } from "@/components/icons";
+import { ExpandedRow } from "./expanded-row";
 import {
   DEFAULT_HIDDEN_COLUMNS,
   MOBILE_HIDDEN_COLUMNS,
@@ -38,17 +41,21 @@ export function PipelineTable({
   const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
     DEFAULT_HIDDEN_COLUMNS
   );
+  const [expanded, setExpanded] = useState<ExpandedState>({});
 
   const table = useReactTable({
     data: rows,
     columns: pipelineColumns,
-    state: { sorting, columnFilters, columnVisibility },
+    state: { sorting, columnFilters, columnVisibility, expanded },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onColumnVisibilityChange: setColumnVisibility,
+    onExpandedChange: setExpanded,
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    getExpandedRowModel: getExpandedRowModel(),
+    getRowCanExpand: () => true,
   });
 
   const statusColumn = table.getColumn("status");
@@ -101,28 +108,56 @@ export function PipelineTable({
                 </td>
               </tr>
             ) : (
-              visibleRows.map((row) => (
-                <tr
-                  key={row.id}
-                  onClick={() => router.push(`/app/${row.original.id}`)}
-                  className="cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-muted/30"
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
+              visibleRows.map((row) => {
+                const isExpanded = row.getIsExpanded();
+                return (
+                  <Fragment key={row.id}>
+                    <tr
+                      onClick={() => router.push(`/app/${row.original.id}`)}
                       className={cn(
-                        "px-3 py-2 align-middle whitespace-nowrap",
-                        mobileHiddenSet.has(cell.column.id) && "hidden md:table-cell"
+                        "cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-muted/30",
+                        isExpanded && "bg-muted/40"
                       )}
                     >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                  <td className="w-8 pr-3 text-right text-muted-foreground">
-                    <ChevronRight className="ml-auto size-4" />
-                  </td>
-                </tr>
-              ))
+                      {row.getVisibleCells().map((cell) => (
+                        <td
+                          key={cell.id}
+                          className={cn(
+                            "px-3 py-2 align-middle whitespace-nowrap",
+                            mobileHiddenSet.has(cell.column.id) && "hidden md:table-cell"
+                          )}
+                        >
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </td>
+                      ))}
+                      <td className="w-8 pr-3 text-right">
+                        <button
+                          type="button"
+                          aria-label={isExpanded ? "Collapse row" : "Expand row"}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            row.toggleExpanded();
+                          }}
+                          className="ml-auto inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          {isExpanded ? (
+                            <ChevronDown className="size-4" />
+                          ) : (
+                            <ChevronRight className="size-4" />
+                          )}
+                        </button>
+                      </td>
+                    </tr>
+                    {isExpanded && (
+                      <tr className="border-b border-border last:border-b-0 bg-muted/10">
+                        <td colSpan={row.getVisibleCells().length + 1} className="p-0">
+                          <ExpandedRow application={row.original} />
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })
             )}
           </tbody>
         </table>

@@ -83,15 +83,15 @@ export async function fetchLeverPosting(
           ? [job.categories.location]
           : [];
 
-    const workModel = job.workplaceType
+    const workModel: EvidenceLayer["work_model"] = job.workplaceType
       ? job.workplaceType.toLowerCase().includes("remote")
         ? "remote"
         : job.workplaceType.toLowerCase().includes("hybrid")
           ? "hybrid"
           : job.workplaceType.toLowerCase().includes("on")
             ? "onsite"
-            : "unspecified"
-      : "unspecified";
+            : undefined
+      : undefined;
 
     const payText = formatLeverPay(job.salaryRange);
 
@@ -103,7 +103,7 @@ export async function fetchLeverPosting(
       jd_body: body,
       jd_url: job.hostedUrl ?? null,
       posted_at: job.createdAt ? new Date(job.createdAt).toISOString() : null,
-      work_model: workModel as EvidenceLayer["work_model"],
+      work_model: workModel,
       compensation_text: payText,
       raw: job as unknown as Record<string, unknown>,
     };

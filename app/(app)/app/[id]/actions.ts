@@ -10,7 +10,7 @@ import {
 } from "@/lib/db/applications";
 import * as interviewsDb from "@/lib/db/interviews";
 import * as companyNotesDb from "@/lib/db/company_notes";
-import { renameCompany } from "@/lib/db/companies";
+import { renameCompany, updateCompany } from "@/lib/db/companies";
 import { updateRole, type RoleUpdate } from "@/lib/db/roles";
 import { geocode } from "@/lib/geocode";
 import type {
@@ -34,7 +34,6 @@ const INTERVIEW_TYPES: ReadonlySet<InterviewType> = new Set([
 const RELOCATION_VALUES: ReadonlySet<RelocationAssistance> = new Set([
   "provided",
   "not_provided",
-  "unspecified",
 ]);
 
 const TARGET_SEASON_VALUES: ReadonlySet<TargetSeason> = new Set([
@@ -48,7 +47,6 @@ const WORK_MODEL_VALUES: ReadonlySet<WorkModel> = new Set([
   "remote",
   "hybrid",
   "onsite",
-  "unspecified",
 ]);
 
 async function requireOwnedApplication(applicationId: string) {
@@ -90,6 +88,18 @@ export async function saveCompanyNotesAction(
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
   await companyNotesDb.upsert(supabase, user.id, companyId, notes);
+}
+
+export async function getCompanyNotesAction(
+  companyId: string
+): Promise<string> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+  const row = await companyNotesDb.get(supabase, user.id, companyId);
+  return row?.notes ?? "";
 }
 
 function parseInterviewForm(formData: FormData) {
@@ -258,11 +268,14 @@ export async function updateRoleFieldAction(
       break;
     }
     case "relocation_assistance": {
-      const v = (rawValue ?? "unspecified") as RelocationAssistance;
-      if (!RELOCATION_VALUES.has(v)) {
+      const v = emptyToNull(rawValue ?? "");
+      if (v === null) {
+        patch.relocation_assistance = null;
+      } else if (RELOCATION_VALUES.has(v as RelocationAssistance)) {
+        patch.relocation_assistance = v as RelocationAssistance;
+      } else {
         return { ok: false, error: "Invalid relocation value" };
       }
-      patch.relocation_assistance = v;
       break;
     }
     case "target_year": {
@@ -287,11 +300,14 @@ export async function updateRoleFieldAction(
       break;
     }
     case "work_model": {
-      const v = (rawValue ?? "unspecified") as WorkModel;
-      if (!WORK_MODEL_VALUES.has(v)) {
+      const v = emptyToNull(rawValue ?? "");
+      if (v === null) {
+        patch.work_model = null;
+      } else if (WORK_MODEL_VALUES.has(v as WorkModel)) {
+        patch.work_model = v as WorkModel;
+      } else {
         return { ok: false, error: "Invalid work model" };
       }
-      patch.work_model = v;
       break;
     }
     case "compensation_hourly_dollars": {
@@ -311,7 +327,9 @@ export async function updateRoleFieldAction(
 
   // Manual edit invalidates the LLM's confidence for this field — strip the key.
   const currentConfidences =
-    (application.role.extraction_confidences as Record<string, number> | undefined) ?? {};
+    (application.role.extraction_confidences as
+      | Record<string, import("@/lib/db/types").ConfidenceTier>
+      | undefined) ?? {};
   if (field in currentConfidences) {
     const next = { ...currentConfidences };
     delete next[field];
@@ -344,4 +362,64 @@ export async function updateCompanyNameAction(
   }
   revalidateDetail(applicationId);
   return { ok: true };
+}
+
+export type CompanyEditableField = "industry_tags" | "hq_city";
+
+export async function updateCompanyFieldAction(
+  applicationId: string,
+  field: CompanyEditableField,
+  rawValue: string | null
+): Promise<InlineEditResult> {
+  const { supabase, application } = await requireOwnedApplication(applicationId);
+  const companyId = application.role.company.id;
+
+  if (field === "industry_tags") {
+    const tags = (rawValue ?? "")
+      .split(/[,\n]/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    const unique = Array.from(new Set(tags));
+    try {
+      await updateCompany(supabase, companyId, { industry_tags: unique });
+      revalidateDetail(applicationId);
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Failed to save tags",
+      };
+    }
+  }
+
+  if (field === "hq_city") {
+    const v = (rawValue ?? "").trim() || null;
+    let hq_lat: number | null = null;
+    let hq_lng: number | null = null;
+    if (v) {
+      try {
+        const coords = await geocode(v);
+        hq_lat = coords?.lat ?? null;
+        hq_lng = coords?.lng ?? null;
+      } catch {
+        // ignore
+      }
+    }
+    try {
+      await updateCompany(supabase, companyId, {
+        hq_city: v,
+        hq_lat,
+        hq_lng,
+      });
+      revalidateDetail(applicationId);
+      return { ok: true };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Failed to save",
+      };
+    }
+  }
+
+  return { ok: false, error: `Unknown field: ${field}` };
 }

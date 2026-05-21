@@ -16,6 +16,7 @@ import {
 import { ConfidenceBadge } from "./confidence-badge";
 import { InlineEdit } from "./inline-edit";
 import type {
+  ConfidenceTier,
   RelocationAssistance,
   TargetSeason,
   WorkModel,
@@ -129,17 +130,19 @@ export function EditableMetadataRow({
         label="Relocation"
         confidence={conf.relocation_assistance}
       >
-        <InlineEdit<RelocationAssistance>
-          value={r.relocation_assistance}
-          display={(v) => <RelocationAssistanceCell value={v} />}
+        <InlineEdit<string>
+          value={r.relocation_assistance ?? ""}
+          display={(v) =>
+            <RelocationAssistanceCell value={(v as RelocationAssistance) || null} />
+          }
           edit={({ draft, setDraft, inputRef }) => (
             <select
               ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
               value={draft}
-              onChange={(e) => setDraft(e.target.value as RelocationAssistance)}
+              onChange={(e) => setDraft(e.target.value)}
               className={SELECT_CLS}
             >
-              <option value="unspecified">Unspecified</option>
+              <option value="">—</option>
               <option value="provided">Provided</option>
               <option value="not_provided">Not provided</option>
             </select>
@@ -211,17 +214,17 @@ export function EditableMetadataRow({
       </ItemWithLabel>
 
       <ItemWithLabel label="Mode" confidence={conf.work_model}>
-        <InlineEdit<WorkModel>
-          value={r.work_model}
-          display={(v) => <WorkModelCell model={v} />}
+        <InlineEdit<string>
+          value={r.work_model ?? ""}
+          display={(v) => <WorkModelCell model={(v as WorkModel) || null} />}
           edit={({ draft, setDraft, inputRef }) => (
             <select
               ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
               value={draft}
-              onChange={(e) => setDraft(e.target.value as WorkModel)}
+              onChange={(e) => setDraft(e.target.value)}
               className={SELECT_CLS}
             >
-              <option value="unspecified">Unspecified</option>
+              <option value="">—</option>
               <option value="remote">Remote</option>
               <option value="hybrid">Hybrid</option>
               <option value="onsite">Onsite</option>
@@ -265,12 +268,6 @@ export function EditableMetadataRow({
         />
       </ItemWithLabel>
 
-      <ItemWithLabel label="Source">
-        <span className="text-sm capitalize">
-          {r.source.replace(/_/g, " ")}
-        </span>
-      </ItemWithLabel>
-
       {r.jd_url && (
         <ItemWithLabel label="JD URL">
           <a
@@ -295,7 +292,7 @@ function ItemWithLabel({
 }: {
   label: string;
   children: React.ReactNode;
-  confidence?: number;
+  confidence?: ConfidenceTier;
 }) {
   return (
     <div className="space-y-0.5">

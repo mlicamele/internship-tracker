@@ -77,13 +77,10 @@ const WORK_MODEL_LABEL: Record<WorkModel, string> = {
   remote: "Remote",
   hybrid: "Hybrid",
   onsite: "Onsite",
-  unspecified: "—",
 };
 
-export function WorkModelCell({ model }: { model: WorkModel }) {
-  if (model === "unspecified") {
-    return <span className="text-muted-foreground">—</span>;
-  }
+export function WorkModelCell({ model }: { model: WorkModel | null }) {
+  if (!model) return <span className="text-muted-foreground">—</span>;
   return <Pill>{WORK_MODEL_LABEL[model]}</Pill>;
 }
 
@@ -95,17 +92,14 @@ export function formatMaxGradYear(year: number | null): React.ReactNode {
 const RELOCATION_LABEL: Record<RelocationAssistance, string> = {
   provided: "Provided",
   not_provided: "Not provided",
-  unspecified: "—",
 };
 
 export function RelocationAssistanceCell({
   value,
 }: {
-  value: RelocationAssistance;
+  value: RelocationAssistance | null;
 }) {
-  if (value === "unspecified") {
-    return <span className="text-muted-foreground">—</span>;
-  }
+  if (!value) return <span className="text-muted-foreground">—</span>;
   return <Pill>{RELOCATION_LABEL[value]}</Pill>;
 }
 

@@ -82,9 +82,7 @@ export async function fetchAshbyJob(
       jd_body: body,
       jd_url: job.jobUrl ?? null,
       posted_at: job.publishedAt ?? null,
-      work_model: job.isRemote
-        ? "remote"
-        : ("unspecified" as EvidenceLayer["work_model"]),
+      work_model: job.isRemote ? "remote" : undefined,
       compensation_text: payText,
       raw: job as unknown as Record<string, unknown>,
     };

@@ -47,11 +47,11 @@ function emptyResult(url: string): ScrapeResult {
     jd_url: url,
     deadline_at: null,
     posted_at: null,
-    work_model: "unspecified",
+    work_model: null,
     target_year: null,
     target_season: "summer",
     max_grad_year: null,
-    relocation_assistance: "unspecified",
+    relocation_assistance: null,
     compensation_hourly_dollars: null,
     confidences: {},
     overall_confidence: 0,
@@ -213,9 +213,7 @@ export async function scrapeUrl(
     posted_at: extracted.posted_at ?? mergedHints.posted_at ?? null,
     deadline_at: extracted.deadline_at ?? mergedHints.deadline_at ?? null,
     work_model:
-      extracted.work_model === "unspecified" && mergedHints.work_model
-        ? mergedHints.work_model
-        : extracted.work_model,
+      extracted.work_model ?? mergedHints.work_model ?? null,
   };
 
   return {
@@ -272,11 +270,7 @@ function mergeEvidence(layers: EvidenceLayer[]): MergedHints {
     merged.jd_url ??= layer.jd_url;
     merged.posted_at ??= layer.posted_at ?? null;
     merged.deadline_at ??= layer.deadline_at ?? null;
-    if (
-      !merged.work_model &&
-      layer.work_model &&
-      layer.work_model !== "unspecified"
-    ) {
+    if (!merged.work_model && layer.work_model) {
       merged.work_model = layer.work_model;
     }
     if (!merged.jsonLd && layer.source === "jsonld" && layer.raw) {

@@ -12,7 +12,12 @@ import type {
 
 /** Application joined with its role + company + interviews for list views. */
 export interface ApplicationRow extends Application {
-  role: Role & { company: Pick<Company, "id" | "name" | "industry_tags"> };
+  role: Role & {
+    company: Pick<
+      Company,
+      "id" | "name" | "industry_tags" | "hq_city" | "hq_lat" | "hq_lng"
+    >;
+  };
   interviews: Pick<Interview, "id" | "type" | "scheduled_at" | "meeting_url">[];
   /** Derived: the soonest upcoming interview (or undated). Null if none. */
   next_interview: Pick<Interview, "id" | "type" | "scheduled_at" | "meeting_url"> | null;
@@ -30,7 +35,7 @@ const APP_WITH_RELATIONS_SELECT = `
   *,
   role:roles(
     *,
-    company:companies(id, name, industry_tags)
+    company:companies(id, name, industry_tags, hq_city, hq_lat, hq_lng)
   ),
   interviews(id, type, scheduled_at, meeting_url)
 `;

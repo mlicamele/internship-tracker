@@ -70,6 +70,28 @@ export async function renameCompany(
   return data as Company;
 }
 
+export type CompanyUpdate = Partial<{
+  industry_tags: string[];
+  hq_city: string | null;
+  hq_lat: number | null;
+  hq_lng: number | null;
+}>;
+
+export async function updateCompany(
+  supabase: SupabaseClient,
+  companyId: string,
+  patch: CompanyUpdate
+): Promise<Company> {
+  const { data, error } = await supabase
+    .from("companies")
+    .update(patch)
+    .eq("id", companyId)
+    .select("*")
+    .single();
+  if (error) throw error;
+  return data as Company;
+}
+
 export async function getById(
   supabase: SupabaseClient,
   companyId: string

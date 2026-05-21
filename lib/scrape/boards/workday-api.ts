@@ -31,13 +31,13 @@ interface WorkdayJobResponse {
 }
 
 function parseRemoteType(rt: string | undefined): EvidenceLayer["work_model"] {
-  if (!rt) return "unspecified";
+  if (!rt) return undefined;
   const t = rt.toLowerCase();
   if (t.includes("remote") && !t.includes("no remote")) return "remote";
   if (t.includes("hybrid")) return "hybrid";
   if (t.includes("on-site") || t.includes("onsite") || t.includes("on site"))
     return "onsite";
-  return "unspecified";
+  return undefined;
 }
 
 /**
