@@ -39,6 +39,9 @@ export function PipelineTable({
     DEFAULT_HIDDEN_COLUMNS
   );
 
+  // TanStack Table returns non-memoizable functions; React Compiler can't
+  // optimize this hook and warns. Suppress — runtime behavior is fine.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: rows,
     columns: pipelineColumns,
