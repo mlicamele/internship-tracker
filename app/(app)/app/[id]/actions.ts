@@ -10,6 +10,7 @@ import {
   updateNotes,
 } from "@/lib/db/applications";
 import * as interviewsDb from "@/lib/db/interviews";
+import * as statusEventsDb from "@/lib/db/status-events";
 import * as companyNotesDb from "@/lib/db/company_notes";
 import { renameCompany, updateCompany } from "@/lib/db/companies";
 import { updateRole, type RoleUpdate } from "@/lib/db/roles";
@@ -162,6 +163,15 @@ export async function deleteInterviewAction(
 ) {
   const { supabase } = await requireOwnedApplication(applicationId);
   await interviewsDb.remove(supabase, interviewId);
+  revalidateDetail(applicationId);
+}
+
+export async function deleteStatusEventAction(
+  applicationId: string,
+  eventId: string
+) {
+  const { supabase } = await requireOwnedApplication(applicationId);
+  await statusEventsDb.deleteStatusEvent(supabase, eventId);
   revalidateDetail(applicationId);
 }
 

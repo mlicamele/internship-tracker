@@ -9,21 +9,22 @@ import type {
   ConfidenceTier,
   ExtractionSnapshot,
   Interview,
-  InterviewType,
   RelocationAssistance,
   StatusEvent,
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
-import { ExternalLink, Plus } from "@/components/icons";
-import {
-  STATUS_OPTIONS,
-  StatusPill,
-  formatDate,
-} from "@/app/(app)/pipeline/_components/cell-formatters";
+import { Plus } from "@/components/icons";
 import { transitionStatusAction } from "@/app/(app)/pipeline/actions";
 import { ConfidenceBadge } from "./confidence-badge";
+import { InterviewCard } from "./interview-card";
 import { JdViewer } from "./jd-viewer";
+import { StagedStatusCell } from "./staged-status-cell";
+import {
+  StagedInterviewDialog,
+  emptyInterviewDraft,
+  type InterviewDraft,
+} from "./staged-interview-dialog";
 import { StatusTimeline } from "./status-timeline";
 import {
   commitDraftAction,
@@ -59,31 +60,6 @@ const ROLE_FIELDS = [
   "compensation_hourly_dollars",
 ] as const;
 type RoleFieldKey = (typeof ROLE_FIELDS)[number];
-
-const TYPE_LABEL: Record<InterviewType, string> = {
-  phone_screen: "Phone screen",
-  technical: "Technical",
-  behavioral: "Behavioral",
-  system_design: "System design",
-  onsite: "Onsite",
-  final: "Final",
-  other: "Other",
-};
-const TYPE_OPTIONS = Object.entries(TYPE_LABEL).map(([value, label]) => ({
-  value: value as InterviewType,
-  label,
-}));
-
-interface InterviewDraft {
-  type: InterviewType;
-  scheduled_at: string; // datetime-local
-  duration_minutes: string;
-  meeting_url: string;
-  location: string;
-  interviewer_names: string;
-  notes: string;
-  outcome: string;
-}
 
 interface Draft {
   // Role
@@ -127,19 +103,6 @@ function interviewToDraft(i: Interview): InterviewDraft {
     interviewer_names: i.interviewer_names ?? "",
     notes: i.notes ?? "",
     outcome: i.outcome ?? "",
-  };
-}
-
-function emptyInterviewDraft(): InterviewDraft {
-  return {
-    type: "phone_screen",
-    scheduled_at: "",
-    duration_minutes: "",
-    meeting_url: "",
-    location: "",
-    interviewer_names: "",
-    notes: "",
-    outcome: "",
   };
 }
 
@@ -247,6 +210,45 @@ export function EditApplicationView({
   const [pending, startTransition] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
+
+  // Interview dialog state
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [dialogInitial, setDialogInitial] = useState<InterviewDraft>(
+    emptyInterviewDraft()
+  );
+  const [dialogTarget, setDialogTarget] = useState<
+    { kind: "new" } | { kind: "edit-existing"; id: string } | { kind: "edit-new"; index: number } | null
+  >(null);
+
+  function openNewInterviewDialog() {
+    setDialogInitial(emptyInterviewDraft());
+    setDialogTarget({ kind: "new" });
+    setDialogOpen(true);
+  }
+  function openEditExistingDialog(id: string, current: InterviewDraft) {
+    setDialogInitial(current);
+    setDialogTarget({ kind: "edit-existing", id });
+    setDialogOpen(true);
+  }
+  function openEditNewDialog(index: number, current: InterviewDraft) {
+    setDialogInitial(current);
+    setDialogTarget({ kind: "edit-new", index });
+    setDialogOpen(true);
+  }
+  function handleDialogSave(d: InterviewDraft) {
+    if (!dialogTarget) return;
+    if (dialogTarget.kind === "new") {
+      setPendingNewInterviews((arr) => [...arr, d]);
+    } else if (dialogTarget.kind === "edit-existing") {
+      setInterviewEdits((m) => ({ ...m, [dialogTarget.id]: d }));
+    } else {
+      const i = dialogTarget.index;
+      setPendingNewInterviews((arr) =>
+        arr.map((x, idx) => (idx === i ? d : x))
+      );
+    }
+    setDialogTarget(null);
+  }
 
   // Resync local draft + interview pending state when server data refreshes.
   // This is a legitimate external-sync effect (server data → local form
@@ -392,7 +394,7 @@ export function EditApplicationView({
           return;
         }
       }
-      router.refresh();
+      router.push("/pipeline");
     });
   }
 
@@ -433,19 +435,8 @@ export function EditApplicationView({
     ConfidenceTier
   >;
 
-  // Interview render helpers
   function effectiveInterviewDraft(i: Interview): InterviewDraft {
     return interviewEdits[i.id] ?? interviewToDraft(i);
-  }
-  function updateInterviewDraft(
-    id: string,
-    initial: InterviewDraft,
-    patch: Partial<InterviewDraft>
-  ) {
-    setInterviewEdits((m) => ({
-      ...m,
-      [id]: { ...initial, ...patch },
-    }));
   }
 
   return (
@@ -707,22 +698,10 @@ export function EditApplicationView({
       <Section title="This application">
         {!isDraft && (
           <Field label="Status">
-            <select
+            <StagedStatusCell
               value={draft.status}
-              onChange={(e) =>
-                update("status", e.target.value as ApplicationStatus)
-              }
-              className={SELECT_CLS}
-            >
-              {STATUS_OPTIONS.map(({ value, label }) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <span className="ml-2 inline-block align-middle">
-              <StatusPill status={draft.status} />
-            </span>
+              onChange={(next) => update("status", next)}
+            />
           </Field>
         )}
         <Field label="Notes" wide>
@@ -744,12 +723,10 @@ export function EditApplicationView({
               .map((i) => {
                 const d = effectiveInterviewDraft(i);
                 return (
-                  <InterviewEditCard
+                  <InterviewCard
                     key={i.id}
                     draft={d}
-                    onChange={(patch) =>
-                      updateInterviewDraft(i.id, d, patch)
-                    }
+                    onEdit={() => openEditExistingDialog(i.id, d)}
                     onDelete={() =>
                       setInterviewDeletes((s) => new Set(s).add(i.id))
                     }
@@ -757,15 +734,11 @@ export function EditApplicationView({
                 );
               })}
             {pendingNewInterviews.map((d, idx) => (
-              <InterviewEditCard
+              <InterviewCard
                 key={`new-${idx}`}
                 draft={d}
                 isNew
-                onChange={(patch) =>
-                  setPendingNewInterviews((arr) =>
-                    arr.map((x, i) => (i === idx ? { ...x, ...patch } : x))
-                  )
-                }
+                onEdit={() => openEditNewDialog(idx, d)}
                 onDelete={() =>
                   setPendingNewInterviews((arr) =>
                     arr.filter((_, i) => i !== idx)
@@ -777,21 +750,28 @@ export function EditApplicationView({
               type="button"
               variant="outline"
               size="sm"
-              onClick={() =>
-                setPendingNewInterviews((arr) => [
-                  ...arr,
-                  emptyInterviewDraft(),
-                ])
-              }
+              onClick={openNewInterviewDialog}
             >
               <Plus className="size-3" />
               Add interview
             </Button>
           </div>
+          <StagedInterviewDialog
+            open={dialogOpen}
+            onOpenChange={setDialogOpen}
+            initial={dialogInitial}
+            isEdit={dialogTarget?.kind !== "new"}
+            onSave={handleDialogSave}
+          />
         </Section>
       )}
 
-      {!isDraft && <StatusTimeline events={statusEvents} />}
+      {!isDraft && (
+        <StatusTimeline
+          applicationId={application.id}
+          events={statusEvents}
+        />
+      )}
 
       <JdViewer body={application.role.jd_body_text} />
 
@@ -847,23 +827,38 @@ export function EditApplicationView({
               Delete
             </Button>
           ))}
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={handleDiscard}
-          disabled={pending || (!isDraft && dirtyCount === 0)}
-        >
-          Discard
-        </Button>
-        <Button
-          type="button"
-          size="sm"
-          onClick={handleSave}
-          disabled={pending || (!isDraft && dirtyCount === 0)}
-        >
-          {pending ? "Saving…" : isDraft ? "Save draft" : "Save changes"}
-        </Button>
+        {!isDraft && dirtyCount === 0 ? (
+          // Saved app with no pending changes: Save is meaningless. Offer
+          // an explicit "Close" that returns to the pipeline.
+          <Button
+            type="button"
+            size="sm"
+            onClick={() => router.push("/pipeline")}
+            disabled={pending}
+          >
+            Close
+          </Button>
+        ) : (
+          <>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={handleDiscard}
+              disabled={pending}
+            >
+              Discard
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={handleSave}
+              disabled={pending}
+            >
+              {pending ? "Saving…" : isDraft ? "Save draft" : "Save changes"}
+            </Button>
+          </>
+        )}
       </div>
     </div>
   );
@@ -929,135 +924,6 @@ function Field({
         )}
       </div>
       {children}
-    </div>
-  );
-}
-
-function InterviewEditCard({
-  draft,
-  isNew,
-  onChange,
-  onDelete,
-}: {
-  draft: InterviewDraft;
-  isNew?: boolean;
-  onChange: (patch: Partial<InterviewDraft>) => void;
-  onDelete: () => void;
-}) {
-  return (
-    <div className="rounded-md border border-border bg-card/30 p-3 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className="inline-flex items-center gap-2 text-xs">
-          <select
-            value={draft.type}
-            onChange={(e) => onChange({ type: e.target.value as InterviewType })}
-            className="h-7 rounded-sm border border-input bg-transparent px-1.5 text-xs"
-          >
-            {TYPE_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
-            ))}
-          </select>
-          {isNew && (
-            <span className="text-[10px] font-medium uppercase tracking-wider text-emerald-500">
-              New
-            </span>
-          )}
-        </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={onDelete}
-          className="text-destructive hover:text-destructive"
-        >
-          {isNew ? "Remove" : "Delete"}
-        </Button>
-      </div>
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          When
-          <input
-            type="datetime-local"
-            value={draft.scheduled_at}
-            onChange={(e) => onChange({ scheduled_at: e.target.value })}
-            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
-          />
-        </label>
-        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Duration (min)
-          <input
-            type="number"
-            min={5}
-            step={5}
-            value={draft.duration_minutes}
-            onChange={(e) => onChange({ duration_minutes: e.target.value })}
-            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
-          />
-        </label>
-        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:col-span-2">
-          Meeting link
-          <input
-            type="url"
-            value={draft.meeting_url}
-            onChange={(e) => onChange({ meeting_url: e.target.value })}
-            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
-            placeholder="https://meet.google.com/…"
-          />
-        </label>
-        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Location
-          <input
-            type="text"
-            value={draft.location}
-            onChange={(e) => onChange({ location: e.target.value })}
-            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
-            placeholder="Office or city"
-          />
-        </label>
-        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          Interviewer(s)
-          <input
-            type="text"
-            value={draft.interviewer_names}
-            onChange={(e) => onChange({ interviewer_names: e.target.value })}
-            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
-          />
-        </label>
-        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:col-span-2">
-          Notes
-          <textarea
-            rows={2}
-            value={draft.notes}
-            onChange={(e) => onChange({ notes: e.target.value })}
-            className="block w-full rounded-sm border border-input bg-transparent px-2 py-1 text-sm normal-case tracking-normal"
-          />
-        </label>
-        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:col-span-2">
-          Outcome
-          <input
-            type="text"
-            value={draft.outcome}
-            onChange={(e) => onChange({ outcome: e.target.value })}
-            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
-            placeholder="Passed / Rejected / Awaiting"
-          />
-        </label>
-      </div>
-      {draft.meeting_url && !isNew && (
-        <a
-          href={draft.meeting_url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:underline"
-        >
-          Open meeting <ExternalLink className="size-3" />
-        </a>
-      )}
-      <p className="text-[10px] text-muted-foreground">
-        Saved time: {draft.scheduled_at ? formatDate(draft.scheduled_at) : "TBD"}
-      </p>
     </div>
   );
 }
