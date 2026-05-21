@@ -12,8 +12,6 @@ import { classifyRole } from "@/lib/anthropic/classify";
 import { geocode } from "@/lib/geocode";
 import type { ClassYearTag, TargetSeason, WorkModel } from "@/lib/db/types";
 
-export const runtime = "nodejs";
-
 function fail(message: string): never {
   redirect(`/applications/new?error=${encodeURIComponent(message)}`);
 }
