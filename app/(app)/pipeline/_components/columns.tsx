@@ -81,7 +81,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.company.name,
     header: SORT_HEADER("Company"),
     cell: ({ row }) => (
-      <span className="block h-7 overflow-y-auto whitespace-normal break-words font-medium leading-tight">
+      <span className="block h-10 overflow-y-auto whitespace-normal break-words font-medium leading-tight">
         {row.original.role.company.name}
       </span>
     ),

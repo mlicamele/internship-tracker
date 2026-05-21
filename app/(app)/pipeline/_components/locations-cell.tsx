@@ -80,7 +80,7 @@ export function LocationsCell({
           e.stopPropagation();
           setOpen((v) => !v);
         }}
-        className="inline-flex h-7 cursor-pointer items-center rounded-sm px-1.5 text-left hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
+        className="inline-flex h-10 cursor-pointer items-center rounded-sm px-1.5 text-left hover:bg-muted/40 focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-primary"
       >
         {formatLocations(locations)}
       </button>
