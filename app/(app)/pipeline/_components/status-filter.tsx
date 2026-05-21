@@ -5,40 +5,57 @@ import { cn } from "@/lib/utils";
 import type { ApplicationStatus } from "@/lib/db/types";
 import { STATUS_OPTIONS, StatusPill } from "./cell-formatters";
 
+/**
+ * Three-state status filter:
+ *   - undefined value  → "All"  (no filter, all rows shown)
+ *   - [] value         → "None" (explicit empty, no rows shown)
+ *   - [status, …]      → only those statuses shown
+ *
+ * Clicking the All button toggles between the All and None states.
+ */
 export function StatusFilter<TData>({
   column,
 }: {
   column: Column<TData, unknown>;
 }) {
-  const value = (column.getFilterValue() as ApplicationStatus[]) ?? [];
-  const isAllSelected = value.length === 0;
+  const raw = column.getFilterValue() as ApplicationStatus[] | undefined;
+  const isAll = raw === undefined;
+  const isNone = Array.isArray(raw) && raw.length === 0;
+  const value = raw ?? [];
 
   function toggle(status: ApplicationStatus) {
-    if (value.includes(status)) {
-      const next = value.filter((s) => s !== status);
+    // Picking an individual status leaves None / All states
+    const base = isAll || isNone ? [] : value;
+    if (base.includes(status)) {
+      const next = base.filter((s) => s !== status);
+      // Falling back to zero selected from individual selection ⇒ "All"
       column.setFilterValue(next.length === 0 ? undefined : next);
     } else {
-      column.setFilterValue([...value, status]);
+      column.setFilterValue([...base, status]);
     }
   }
 
-  function reset() {
-    column.setFilterValue(undefined);
+  function toggleAll() {
+    if (isAll) {
+      column.setFilterValue([]); // → None
+    } else {
+      column.setFilterValue(undefined); // → All
+    }
   }
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <button
         type="button"
-        onClick={reset}
+        onClick={toggleAll}
         className={cn(
           "rounded-sm border px-2 py-1 text-xs transition-colors",
-          isAllSelected
-            ? "border-foreground bg-foreground text-background"
-            : "border-border text-muted-foreground hover:text-foreground"
+          isAll && "border-foreground bg-foreground text-background",
+          isNone && "border-destructive bg-destructive/10 text-destructive",
+          !isAll && !isNone && "border-border text-muted-foreground hover:text-foreground"
         )}
       >
-        All
+        {isNone ? "None" : "All"}
       </button>
       {STATUS_OPTIONS.map(({ value: status }) => {
         const selected = value.includes(status);
@@ -49,7 +66,7 @@ export function StatusFilter<TData>({
             onClick={() => toggle(status)}
             className={cn(
               "rounded-sm transition-opacity",
-              !isAllSelected && !selected && "opacity-50 hover:opacity-100"
+              (isNone || (!isAll && !selected)) && "opacity-40 hover:opacity-100"
             )}
           >
             <StatusPill status={status} />

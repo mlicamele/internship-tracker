@@ -913,7 +913,7 @@ function Field({
           <button
             type="button"
             onClick={onRevert}
-            className="ml-auto text-muted-foreground hover:text-foreground"
+            className="ml-auto inline-flex size-5 items-center justify-center rounded-sm text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
             title="Revert to auto-extracted value (will be saved when you click Save)"
             aria-label="Revert to auto-extracted value"
           >

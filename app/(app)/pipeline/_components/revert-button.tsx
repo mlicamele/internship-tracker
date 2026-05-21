@@ -28,7 +28,7 @@ export function RevertButton({
         });
       }}
       disabled={pending}
-      className="ml-1 inline-flex size-4 items-center justify-center rounded-sm text-[10px] text-muted-foreground hover:bg-muted hover:text-foreground"
+      className="ml-1 inline-flex size-5 items-center justify-center rounded-sm text-sm text-muted-foreground hover:bg-muted hover:text-foreground"
       title="Revert to auto-extracted value"
       aria-label="Revert to auto-extracted value"
     >

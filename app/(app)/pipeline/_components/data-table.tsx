@@ -13,7 +13,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
-import { ExternalLink } from "@/components/icons";
+import { Eye } from "@/components/icons";
 import {
   DEFAULT_HIDDEN_COLUMNS,
   MOBILE_HIDDEN_COLUMNS,
@@ -24,7 +24,7 @@ import { ColumnVisibilityMenu } from "./column-visibility-menu";
 import { StatusFilter } from "./status-filter";
 
 // Sticky-column widths (must match the <th>/<td> widths)
-const EDIT_COL_W = 40; // px
+const EDIT_COL_W = 76; // px — fits "👁 View"
 const COMPANY_COL_W = 160; // px
 
 export function PipelineTable({
@@ -61,7 +61,7 @@ export function PipelineTable({
   const mobileHiddenSet = useMemo(() => new Set(MOBILE_HIDDEN_COLUMNS), []);
 
   return (
-    <div className="space-y-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-3">
       {statusColumn && (
         <div className="flex flex-wrap items-center justify-between gap-3">
           <StatusFilter column={statusColumn} />
@@ -69,17 +69,18 @@ export function PipelineTable({
         </div>
       )}
 
-      <div className="overflow-x-auto rounded-md border border-border">
+      <div className="flex-1 overflow-auto rounded-md border border-border">
         <table className="w-full text-sm">
-          <thead className="bg-background">
+          <thead className="sticky top-0 z-30 bg-background shadow-[0_1px_0_0_var(--color-border)]">
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id} className="border-b border-border">
                 {/* Sticky: edit-button column header */}
                 <th
-                  className="sticky left-0 z-30 h-9 bg-background"
+                  className="sticky left-0 z-30 h-9 bg-background px-3 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground"
                   style={{ width: EDIT_COL_W, minWidth: EDIT_COL_W }}
-                  aria-hidden
-                />
+                >
+                  Open
+                </th>
                 {headerGroup.headers.map((header) => {
                   const isCompany = header.column.id === "company";
                   return (
@@ -135,9 +136,10 @@ export function PipelineTable({
                       href={`/app/${row.original.id}`}
                       aria-label="Open detail page"
                       title="Open detail page"
-                      className="inline-flex size-7 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                      className="inline-flex items-center gap-1 rounded-sm border border-border bg-background px-2 py-1 text-xs text-muted-foreground hover:bg-accent hover:text-accent-foreground"
                     >
-                      <ExternalLink className="size-3.5" />
+                      <Eye className="size-3.5" />
+                      View
                     </Link>
                   </td>
                   {row.getVisibleCells().map((cell) => {
@@ -172,7 +174,7 @@ export function PipelineTable({
         </table>
       </div>
 
-      <p className="text-xs text-muted-foreground">
+      <p className="shrink-0 text-xs text-muted-foreground">
         {visibleRows.length} of {rows.length} application
         {rows.length === 1 ? "" : "s"} shown
       </p>

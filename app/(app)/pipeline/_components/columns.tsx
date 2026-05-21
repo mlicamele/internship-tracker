@@ -124,8 +124,15 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     cell: ({ row }) => (
       <StatusCell applicationId={row.original.id} status={row.original.status} />
     ),
-    filterFn: (row: Row<PipelineRow>, columnId: string, filterValue: ApplicationStatus[]) => {
-      if (!filterValue || filterValue.length === 0) return true;
+    filterFn: (
+      row: Row<PipelineRow>,
+      columnId: string,
+      filterValue: ApplicationStatus[] | undefined
+    ) => {
+      // undefined ⇒ "All" (show every row)
+      if (filterValue === undefined) return true;
+      // [] ⇒ "None" (show no rows)
+      if (filterValue.length === 0) return false;
       return filterValue.includes(row.getValue(columnId) as ApplicationStatus);
     },
     enableHiding: false,

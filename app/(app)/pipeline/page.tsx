@@ -38,7 +38,7 @@ export default async function PipelinePage() {
   }));
 
   return (
-    <div className="space-y-6">
+    <div className="flex h-[calc(100dvh-8rem)] flex-col gap-4">
       <header className="flex flex-wrap items-end justify-between gap-3">
         <div>
           <h1 className="text-xl font-semibold tracking-tight">Pipeline</h1>
