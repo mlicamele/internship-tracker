@@ -10,6 +10,7 @@ import type {
 } from "@/lib/db/types";
 import { ArrowUpDown } from "@/components/icons";
 import { updateRoleFieldAction } from "@/app/(app)/app/[id]/actions";
+import { RevertButton } from "./revert-button";
 import { TableInlineCell } from "./table-inline-cell";
 import {
   RelocationAssistanceCell,
@@ -30,6 +31,31 @@ export interface PipelineRow extends ApplicationRow {
 
 const INPUT_CLS =
   "h-7 w-full min-w-20 rounded-sm border border-input bg-background px-1.5 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+/** True iff current value differs from the snapshot's value for that field. */
+function isDirty(row: PipelineRow, field: string, current: unknown): boolean {
+  const snap = (row.role.extraction_snapshot?.values ?? {}) as Record<
+    string,
+    unknown
+  >;
+  if (!(field in snap)) return false;
+  const snapVal = snap[field];
+  // Locations: snapshot is string[] of texts, current is RoleLocation[]
+  if (field === "locations") {
+    const currentTexts = Array.isArray(current)
+      ? (current as { text: string }[]).map((l) => l.text)
+      : [];
+    const snapTexts = Array.isArray(snapVal) ? (snapVal as string[]) : [];
+    return JSON.stringify(currentTexts) !== JSON.stringify(snapTexts);
+  }
+  // Dates: compare just YYYY-MM-DD (Postgres timestamps may add seconds)
+  if (field === "deadline_at" || field === "posted_at") {
+    const a = typeof current === "string" ? current.slice(0, 10) : current;
+    const b = typeof snapVal === "string" ? snapVal.slice(0, 10) : snapVal;
+    return a !== b;
+  }
+  return snapVal !== current;
+}
 
 const SORT_HEADER = (label: string) => {
   function SortHeader({
@@ -70,21 +96,26 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.title,
     header: SORT_HEADER("Role"),
     cell: ({ row }) => (
-      <TableInlineCell<string>
-        value={row.original.role.title}
-        display={(v) => <span>{v}</span>}
-        renderInput={({ draft, setDraft, commit, inputRef }) => (
-          <input
-            ref={inputRef as React.MutableRefObject<HTMLInputElement>}
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            className={INPUT_CLS}
-          />
+      <span className="inline-flex items-center">
+        <TableInlineCell<string>
+          value={row.original.role.title}
+          display={(v) => <span>{v}</span>}
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <input
+              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              className={INPUT_CLS}
+            />
+          )}
+          onSave={(v) => updateRoleFieldAction(row.original.id, "title", v)}
+        />
+        {isDirty(row.original, "title", row.original.role.title) && (
+          <RevertButton applicationId={row.original.id} field="title" />
         )}
-        onSave={(v) => updateRoleFieldAction(row.original.id, "title", v)}
-      />
+      </span>
     ),
     enableHiding: false,
   },
@@ -128,6 +159,9 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           )}
           onSave={(v) => updateRoleFieldAction(row.original.id, "target_year", v)}
         />
+        {isDirty(row.original, "target_year", row.original.role.target_year) && (
+          <RevertButton applicationId={row.original.id} field="target_year" />
+        )}
         <TableInlineCell<TargetSeason>
           value={row.original.role.target_season}
           display={() => <span />}
@@ -147,6 +181,9 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           )}
           onSave={(v) => updateRoleFieldAction(row.original.id, "target_season", v)}
         />
+        {isDirty(row.original, "target_season", row.original.role.target_season) && (
+          <RevertButton applicationId={row.original.id} field="target_season" />
+        )}
       </span>
     ),
   },
@@ -156,21 +193,26 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
       row.role.deadline_at ? new Date(row.role.deadline_at).getTime() : Number.POSITIVE_INFINITY,
     header: SORT_HEADER("Deadline"),
     cell: ({ row }) => (
-      <TableInlineCell<string>
-        value={row.original.role.deadline_at ? row.original.role.deadline_at.slice(0, 10) : ""}
-        display={(v) => <span>{formatDate(v ? v + "T00:00:00Z" : null)}</span>}
-        renderInput={({ draft, setDraft, commit, inputRef }) => (
-          <input
-            ref={inputRef as React.MutableRefObject<HTMLInputElement>}
-            type="date"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            className={INPUT_CLS}
-          />
+      <span className="inline-flex items-center">
+        <TableInlineCell<string>
+          value={row.original.role.deadline_at ? row.original.role.deadline_at.slice(0, 10) : ""}
+          display={(v) => <span>{formatDate(v ? v + "T00:00:00Z" : null)}</span>}
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <input
+              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+              type="date"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              className={INPUT_CLS}
+            />
+          )}
+          onSave={(v) => updateRoleFieldAction(row.original.id, "deadline_at", v)}
+        />
+        {isDirty(row.original, "deadline_at", row.original.role.deadline_at) && (
+          <RevertButton applicationId={row.original.id} field="deadline_at" />
         )}
-        onSave={(v) => updateRoleFieldAction(row.original.id, "deadline_at", v)}
-      />
+      </span>
     ),
   },
   {
@@ -178,22 +220,27 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.locations[0]?.text ?? "",
     header: SORT_HEADER("Location"),
     cell: ({ row }) => (
-      <TableInlineCell<string>
-        value={row.original.role.locations.map((l) => l.text).join(", ")}
-        display={() => formatLocations(row.original.role.locations)}
-        renderInput={({ draft, setDraft, commit, inputRef }) => (
-          <input
-            ref={inputRef as React.MutableRefObject<HTMLInputElement>}
-            type="text"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            className={INPUT_CLS}
-            placeholder="San Francisco, NYC, Remote"
-          />
+      <span className="inline-flex items-center">
+        <TableInlineCell<string>
+          value={row.original.role.locations.map((l) => l.text).join(", ")}
+          display={() => formatLocations(row.original.role.locations)}
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <input
+              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+              type="text"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              className={INPUT_CLS}
+              placeholder="San Francisco, NYC, Remote"
+            />
+          )}
+          onSave={(v) => updateRoleFieldAction(row.original.id, "locations", v)}
+        />
+        {isDirty(row.original, "locations", row.original.role.locations) && (
+          <RevertButton applicationId={row.original.id} field="locations" />
         )}
-        onSave={(v) => updateRoleFieldAction(row.original.id, "locations", v)}
-      />
+      </span>
     ),
   },
   {
@@ -201,25 +248,30 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.work_model,
     header: SORT_HEADER("Mode"),
     cell: ({ row }) => (
-      <TableInlineCell<string>
-        value={row.original.role.work_model ?? ""}
-        display={() => <WorkModelCell model={row.original.role.work_model} />}
-        renderInput={({ draft, setDraft, commit, inputRef }) => (
-          <select
-            ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value as WorkModel | "")}
-            onBlur={commit}
-            className={INPUT_CLS}
-          >
-            <option value="">—</option>
-            <option value="remote">Remote</option>
-            <option value="hybrid">Hybrid</option>
-            <option value="onsite">Onsite</option>
-          </select>
+      <span className="inline-flex items-center">
+        <TableInlineCell<string>
+          value={row.original.role.work_model ?? ""}
+          display={() => <WorkModelCell model={row.original.role.work_model} />}
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <select
+              ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value as WorkModel | "")}
+              onBlur={commit}
+              className={INPUT_CLS}
+            >
+              <option value="">—</option>
+              <option value="remote">Remote</option>
+              <option value="hybrid">Hybrid</option>
+              <option value="onsite">Onsite</option>
+            </select>
+          )}
+          onSave={(v) => updateRoleFieldAction(row.original.id, "work_model", v)}
+        />
+        {isDirty(row.original, "work_model", row.original.role.work_model) && (
+          <RevertButton applicationId={row.original.id} field="work_model" />
         )}
-        onSave={(v) => updateRoleFieldAction(row.original.id, "work_model", v)}
-      />
+      </span>
     ),
   },
   {
@@ -227,29 +279,41 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.compensation_hourly_dollars ?? 0,
     header: SORT_HEADER("$/hr"),
     cell: ({ row }) => (
-      <TableInlineCell<string>
-        value={
-          row.original.role.compensation_hourly_dollars !== null
-            ? String(row.original.role.compensation_hourly_dollars)
-            : ""
-        }
-        display={(v) => formatCompensation(v ? Number(v) : null)}
-        renderInput={({ draft, setDraft, commit, inputRef }) => (
-          <input
-            ref={inputRef as React.MutableRefObject<HTMLInputElement>}
-            type="number"
-            min={0}
-            max={9999}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={commit}
-            className={`${INPUT_CLS} w-20`}
+      <span className="inline-flex items-center">
+        <TableInlineCell<string>
+          value={
+            row.original.role.compensation_hourly_dollars !== null
+              ? String(row.original.role.compensation_hourly_dollars)
+              : ""
+          }
+          display={(v) => formatCompensation(v ? Number(v) : null)}
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <input
+              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+              type="number"
+              min={0}
+              max={9999}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              className={`${INPUT_CLS} w-20`}
+            />
+          )}
+          onSave={(v) =>
+            updateRoleFieldAction(row.original.id, "compensation_hourly_dollars", v)
+          }
+        />
+        {isDirty(
+          row.original,
+          "compensation_hourly_dollars",
+          row.original.role.compensation_hourly_dollars
+        ) && (
+          <RevertButton
+            applicationId={row.original.id}
+            field="compensation_hourly_dollars"
           />
         )}
-        onSave={(v) =>
-          updateRoleFieldAction(row.original.id, "compensation_hourly_dollars", v)
-        }
-      />
+      </span>
     ),
   },
   {
@@ -300,6 +364,9 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           )}
           onSave={(v) => updateRoleFieldAction(row.original.id, "min_grad_year", v)}
         />
+        {isDirty(row.original, "min_grad_year", row.original.role.min_grad_year) && (
+          <RevertButton applicationId={row.original.id} field="min_grad_year" />
+        )}
         <TableInlineCell<string>
           value={row.original.role.max_grad_year ? String(row.original.role.max_grad_year) : ""}
           display={() => <span />}
@@ -318,6 +385,9 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           )}
           onSave={(v) => updateRoleFieldAction(row.original.id, "max_grad_year", v)}
         />
+        {isDirty(row.original, "max_grad_year", row.original.role.max_grad_year) && (
+          <RevertButton applicationId={row.original.id} field="max_grad_year" />
+        )}
       </span>
     ),
   },
@@ -326,28 +396,40 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     accessorFn: (row) => row.role.relocation_assistance,
     header: SORT_HEADER("Relocation"),
     cell: ({ row }) => (
-      <TableInlineCell<string>
-        value={row.original.role.relocation_assistance ?? ""}
-        display={() => (
-          <RelocationAssistanceCell value={row.original.role.relocation_assistance} />
+      <span className="inline-flex items-center">
+        <TableInlineCell<string>
+          value={row.original.role.relocation_assistance ?? ""}
+          display={() => (
+            <RelocationAssistanceCell value={row.original.role.relocation_assistance} />
+          )}
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <select
+              ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value as RelocationAssistance | "")}
+              onBlur={commit}
+              className={INPUT_CLS}
+            >
+              <option value="">—</option>
+              <option value="provided">Provided</option>
+              <option value="not_provided">Not provided</option>
+            </select>
+          )}
+          onSave={(v) =>
+            updateRoleFieldAction(row.original.id, "relocation_assistance", v)
+          }
+        />
+        {isDirty(
+          row.original,
+          "relocation_assistance",
+          row.original.role.relocation_assistance
+        ) && (
+          <RevertButton
+            applicationId={row.original.id}
+            field="relocation_assistance"
+          />
         )}
-        renderInput={({ draft, setDraft, commit, inputRef }) => (
-          <select
-            ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value as RelocationAssistance | "")}
-            onBlur={commit}
-            className={INPUT_CLS}
-          >
-            <option value="">—</option>
-            <option value="provided">Provided</option>
-            <option value="not_provided">Not provided</option>
-          </select>
-        )}
-        onSave={(v) =>
-          updateRoleFieldAction(row.original.id, "relocation_assistance", v)
-        }
-      />
+      </span>
     ),
   },
   {

@@ -17,7 +17,13 @@ export type ConfidenceTier = "high" | "medium" | "low";
 
 export type RoleSource = "paste_url" | "scrape_simplify" | "manual";
 
-export type TriageState = "inbox" | "active" | "snoozed" | "skipped";
+export type TriageState = "draft" | "inbox" | "active" | "snoozed" | "skipped";
+
+/** Frozen LLM-extraction snapshot stored on a role at creation time. */
+export interface ExtractionSnapshot {
+  values: Record<string, unknown>;
+  confidences: Record<string, ConfidenceTier>;
+}
 
 export type ApplicationStatus =
   | "saved"
@@ -97,6 +103,8 @@ export interface Role {
   relocation_assistance: RelocationAssistance | null;
   /** Per-field confidence tier emitted by the LLM extractor. Missing keys = no signal / manually edited. */
   extraction_confidences: Record<string, ConfidenceTier>;
+  /** Frozen original LLM extraction (values + confidences) for per-field revert. Empty `{}` for manually-entered roles. */
+  extraction_snapshot: ExtractionSnapshot;
   source: RoleSource;
   source_external_id: string | null;
   // Added in migration 0002

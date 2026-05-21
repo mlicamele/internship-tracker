@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getById,
   hardDelete,
+  setTriageState,
   updateNotes,
 } from "@/lib/db/applications";
 import * as interviewsDb from "@/lib/db/interviews";
@@ -436,4 +437,139 @@ export async function updateCompanyFieldAction(
   }
 
   return { ok: false, error: `Unknown field: ${field}` };
+}
+
+/**
+ * Flip a draft application to "active" (the normal pipeline state) after the
+ * user has reviewed the auto-extracted data and clicked Save. No-op for
+ * applications that aren't drafts.
+ */
+export async function commitDraftAction(
+  applicationId: string
+): Promise<InlineEditResult> {
+  const { supabase, application } = await requireOwnedApplication(applicationId);
+  if (application.triage_state !== "draft") return { ok: true };
+  try {
+    await setTriageState(supabase, applicationId, "active");
+    revalidateDetail(applicationId);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to commit draft",
+    };
+  }
+}
+
+/**
+ * Revert a single role field to its frozen extraction-snapshot value. Restores
+ * the original confidence tier so the field re-appears as auto-extracted.
+ * No-op if the snapshot doesn't have a value for this field.
+ */
+export async function revertRoleFieldAction(
+  applicationId: string,
+  field: RoleEditableField
+): Promise<InlineEditResult> {
+  const { supabase, application } = await requireOwnedApplication(applicationId);
+  const snapshot = application.role.extraction_snapshot ?? {
+    values: {},
+    confidences: {},
+  };
+  const snapshotValues = (snapshot.values ?? {}) as Record<string, unknown>;
+  const snapshotConfidences = (snapshot.confidences ?? {}) as Record<
+    string,
+    import("@/lib/db/types").ConfidenceTier
+  >;
+
+  if (!(field in snapshotValues)) {
+    return { ok: false, error: "No extraction snapshot for this field" };
+  }
+
+  const patch: RoleUpdate = {};
+  const snap = snapshotValues[field];
+
+  switch (field) {
+    case "title":
+      patch.title = typeof snap === "string" ? snap : "Untitled role";
+      break;
+    case "locations": {
+      // Snapshot stores locations as string[] of texts; re-geocode each
+      const texts = Array.isArray(snap) ? (snap as unknown[]).filter((x): x is string => typeof x === "string") : [];
+      const next: RoleLocation[] = [];
+      for (const text of texts) {
+        let lat: number | null = null;
+        let lng: number | null = null;
+        try {
+          const coords = await geocode(text);
+          lat = coords?.lat ?? null;
+          lng = coords?.lng ?? null;
+        } catch {
+          // ignore
+        }
+        next.push({ text, lat, lng });
+      }
+      patch.locations = next;
+      break;
+    }
+    case "deadline_at":
+      patch.deadline_at = typeof snap === "string" ? snap : null;
+      break;
+    case "posted_at":
+      patch.posted_at = typeof snap === "string" ? snap : null;
+      break;
+    case "min_grad_year":
+      patch.min_grad_year = typeof snap === "number" ? snap : null;
+      break;
+    case "max_grad_year":
+      patch.max_grad_year = typeof snap === "number" ? snap : null;
+      break;
+    case "target_year":
+      patch.target_year = typeof snap === "number" ? snap : null;
+      break;
+    case "target_season":
+      if (TARGET_SEASON_VALUES.has(snap as TargetSeason)) {
+        patch.target_season = snap as TargetSeason;
+      }
+      break;
+    case "work_model":
+      if (snap === null) patch.work_model = null;
+      else if (WORK_MODEL_VALUES.has(snap as WorkModel)) {
+        patch.work_model = snap as WorkModel;
+      }
+      break;
+    case "relocation_assistance":
+      if (snap === null) patch.relocation_assistance = null;
+      else if (RELOCATION_VALUES.has(snap as RelocationAssistance)) {
+        patch.relocation_assistance = snap as RelocationAssistance;
+      }
+      break;
+    case "compensation_hourly_dollars":
+      patch.compensation_hourly_dollars = typeof snap === "number" ? snap : null;
+      break;
+    default:
+      return { ok: false, error: `Cannot revert ${field}` };
+  }
+
+  // Restore the original confidence tier for this field
+  if (field in snapshotConfidences) {
+    const currentConfidences =
+      (application.role.extraction_confidences as
+        | Record<string, import("@/lib/db/types").ConfidenceTier>
+        | undefined) ?? {};
+    patch.extraction_confidences = {
+      ...currentConfidences,
+      [field]: snapshotConfidences[field],
+    };
+  }
+
+  try {
+    await updateRole(supabase, application.role_id, patch);
+    revalidateDetail(applicationId);
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Failed to revert",
+    };
+  }
 }

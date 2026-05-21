@@ -1,21 +1,27 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { ApplicationRow } from "@/lib/db/applications";
 import { Button } from "@/components/ui/button";
 import type {
+  ConfidenceTier,
+  ExtractionSnapshot,
   RelocationAssistance,
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
+import { ConfidenceBadge } from "./confidence-badge";
 import {
-  getCompanyNotesAction,
+  commitDraftAction,
+  deleteApplicationAction,
+  revertRoleFieldAction,
   saveCompanyNotesAction,
   updateCompanyFieldAction,
   updateCompanyNameAction,
   updateNotesAction,
   updateRoleFieldAction,
-} from "@/app/(app)/app/[id]/actions";
+} from "../actions";
 
 const INPUT_CLS =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
@@ -23,16 +29,11 @@ const SELECT_CLS = INPUT_CLS;
 const TEXTAREA_CLS =
   "flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
-/**
- * Staged-edit panel — all inputs are local until Save commits them. Discard
- * reverts the draft and closes the expansion. Each Save commits dirty fields
- * in parallel via the existing per-field server actions.
- */
 interface Draft {
   // Role
   title: string;
-  locations: string; // newline- or comma-separated text editor
-  deadline_at: string; // YYYY-MM-DD
+  locations: string;
+  deadline_at: string;
   posted_at: string;
   min_grad_year: string;
   max_grad_year: string;
@@ -43,14 +44,33 @@ interface Draft {
   compensation_hourly_dollars: string;
   // Company
   company_name: string;
-  company_industry_tags: string; // comma-separated
+  company_industry_tags: string;
   company_hq_city: string;
   // Notes
   app_notes: string;
   company_notes: string;
 }
 
-function draftFromApplication(application: ApplicationRow): Draft {
+const ROLE_FIELDS = [
+  "title",
+  "locations",
+  "deadline_at",
+  "posted_at",
+  "min_grad_year",
+  "max_grad_year",
+  "target_year",
+  "target_season",
+  "work_model",
+  "relocation_assistance",
+  "compensation_hourly_dollars",
+] as const;
+
+type RoleFieldKey = (typeof ROLE_FIELDS)[number];
+
+function draftFromApplication(
+  application: ApplicationRow,
+  companyNotes: string
+): Draft {
   const r = application.role;
   const c = r.company;
   return {
@@ -72,74 +92,81 @@ function draftFromApplication(application: ApplicationRow): Draft {
     company_industry_tags: c.industry_tags.join(", "),
     company_hq_city: c.hq_city ?? "",
     app_notes: application.notes,
-    company_notes: "", // populated by lazy fetch
+    company_notes: companyNotes,
   };
 }
 
-const ROLE_FIELDS = [
-  "title",
-  "locations",
-  "deadline_at",
-  "posted_at",
-  "min_grad_year",
-  "max_grad_year",
-  "target_year",
-  "target_season",
-  "work_model",
-  "relocation_assistance",
-  "compensation_hourly_dollars",
-] as const;
+/**
+ * Build the snapshot-equivalent string for a given role field so we can
+ * compare against the user's current draft and surface the revert ↺ button.
+ */
+function snapshotAsDraftValue(
+  snapshot: ExtractionSnapshot,
+  field: RoleFieldKey
+): string | null {
+  const values = (snapshot.values ?? {}) as Record<string, unknown>;
+  if (!(field in values)) return null;
+  const v = values[field];
+  if (v === null || v === undefined) return "";
+  if (field === "locations" && Array.isArray(v)) {
+    return (v as unknown[])
+      .filter((x): x is string => typeof x === "string")
+      .join("\n");
+  }
+  if (field === "deadline_at" || field === "posted_at") {
+    return typeof v === "string" ? v.slice(0, 10) : "";
+  }
+  if (typeof v === "string") return v;
+  if (typeof v === "number") return String(v);
+  return null;
+}
 
-export function ExpandedRow({
+export function RoleEditForm({
   application,
-  onClose,
+  initialCompanyNotes,
 }: {
   application: ApplicationRow;
-  onClose: () => void;
+  initialCompanyNotes: string;
 }) {
+  const router = useRouter();
+  const isDraft = application.triage_state === "draft";
+
   const initial = useMemo(
-    () => draftFromApplication(application),
-    [application]
+    () => draftFromApplication(application, initialCompanyNotes),
+    [application, initialCompanyNotes]
   );
   const [draft, setDraft] = useState<Draft>(initial);
-  const [companyNotesLoaded, setCompanyNotesLoaded] = useState(false);
-  const [companyNotesInitial, setCompanyNotesInitial] = useState("");
   const [pending, startTransition] = useTransition();
+  const [reverting, startRevert] = useTransition();
+  const [confirmDelete, setConfirmDelete] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
 
-  // Lazy-load company notes once when the row opens
+  // Resync local draft when the server data refreshes after an action. This
+  // is a legitimate external-sync effect — the source of truth (server data
+  // memoized into `initial`) changed, so the local draft has to catch up.
   useEffect(() => {
-    let cancelled = false;
-    getCompanyNotesAction(application.role.company.id).then((notes) => {
-      if (cancelled) return;
-      setCompanyNotesLoaded(true);
-      setCompanyNotesInitial(notes);
-      setDraft((d) => ({ ...d, company_notes: notes }));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [application.role.company.id]);
-
-  const fullInitial: Draft = useMemo(
-    () => ({ ...initial, company_notes: companyNotesInitial }),
-    [initial, companyNotesInitial]
-  );
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDraft(initial);
+  }, [initial]);
 
   const dirty = useMemo(() => {
-    const keys = Object.keys(draft) as (keyof Draft)[];
-    return keys.filter((k) => draft[k] !== fullInitial[k]);
-  }, [draft, fullInitial]);
+    return (Object.keys(draft) as (keyof Draft)[]).filter(
+      (k) => draft[k] !== initial[k]
+    );
+  }, [draft, initial]);
 
   function update<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
   }
 
+  function revertField(field: RoleFieldKey) {
+    startRevert(async () => {
+      await revertRoleFieldAction(application.id, field);
+      router.refresh();
+    });
+  }
+
   async function handleSave() {
-    if (dirty.length === 0) {
-      onClose();
-      return;
-    }
     setErrors([]);
     startTransition(async () => {
       const errs: string[] = [];
@@ -152,7 +179,7 @@ export function ExpandedRow({
           tasks.push(
             updateRoleFieldAction(
               appId,
-              field as (typeof ROLE_FIELDS)[number],
+              field as RoleFieldKey,
               draft[field] as string
             ).then((r) => {
               if (!r.ok) errs.push(`${field}: ${r.error}`);
@@ -190,28 +217,75 @@ export function ExpandedRow({
       }
 
       await Promise.all(tasks);
+
       if (errs.length > 0) {
         setErrors(errs);
-      } else {
-        onClose();
+        return;
       }
+
+      // If this was a draft, promote it to active so it shows up in pipeline
+      if (isDraft) {
+        const r = await commitDraftAction(appId);
+        if (!r.ok) {
+          setErrors([`commit draft: ${r.error}`]);
+          return;
+        }
+      }
+
+      router.refresh();
     });
   }
 
   function handleDiscard() {
-    setDraft(fullInitial);
-    setErrors([]);
-    onClose();
+    if (isDraft) {
+      // Discarding a draft = delete the orphan entirely
+      if (
+        !confirm(
+          "Discard this draft? The role and its extraction will be deleted."
+        )
+      )
+        return;
+      startTransition(async () => {
+        await deleteApplicationAction(application.id);
+      });
+    } else {
+      // Saved app: just reset local draft state
+      setDraft(initial);
+      setErrors([]);
+    }
+  }
+
+  function handleDelete() {
+    startTransition(async () => {
+      await deleteApplicationAction(application.id);
+    });
+  }
+
+  const snapshot: ExtractionSnapshot =
+    (application.role.extraction_snapshot as ExtractionSnapshot) ?? {
+      values: {},
+      confidences: {},
+    };
+  const conf = (application.role.extraction_confidences ?? {}) as Record<
+    string,
+    ConfidenceTier
+  >;
+
+  function snapForDraft(field: RoleFieldKey): string | null {
+    return snapshotAsDraftValue(snapshot, field);
   }
 
   return (
-    <div
-      onClick={(e) => e.stopPropagation()}
-      className="space-y-5 bg-muted/20 px-4 py-5"
-    >
+    <div className="space-y-6">
       <Section title="Role">
         <Grid>
-          <Field label="Title" wide>
+          <Field
+            label="Title"
+            wide
+            confidence={conf.title}
+            canRevert={snapForDraft("title") !== null && draft.title !== snapForDraft("title")}
+            onRevert={() => revertField("title")}
+          >
             <input
               type="text"
               value={draft.title}
@@ -219,16 +293,33 @@ export function ExpandedRow({
               className={INPUT_CLS}
             />
           </Field>
-          <Field label="Locations (one per line)" wide>
+          <Field
+            label="Locations (one per line)"
+            wide
+            confidence={conf.locations}
+            canRevert={
+              snapForDraft("locations") !== null &&
+              draft.locations !== snapForDraft("locations")
+            }
+            onRevert={() => revertField("locations")}
+          >
             <textarea
               rows={Math.max(2, draft.locations.split("\n").length)}
               value={draft.locations}
               onChange={(e) => update("locations", e.target.value)}
               className={TEXTAREA_CLS}
-              placeholder="San Francisco, CA&#10;New York, NY&#10;Remote"
+              placeholder="San Francisco, CA&#10;New York, NY"
             />
           </Field>
-          <Field label="Target year">
+          <Field
+            label="Target year"
+            confidence={conf.target_year}
+            canRevert={
+              snapForDraft("target_year") !== null &&
+              draft.target_year !== snapForDraft("target_year")
+            }
+            onRevert={() => revertField("target_year")}
+          >
             <input
               type="number"
               min={2024}
@@ -239,12 +330,18 @@ export function ExpandedRow({
               placeholder="2027"
             />
           </Field>
-          <Field label="Target season">
+          <Field
+            label="Target season"
+            confidence={conf.target_season}
+            canRevert={
+              snapForDraft("target_season") !== null &&
+              draft.target_season !== snapForDraft("target_season")
+            }
+            onRevert={() => revertField("target_season")}
+          >
             <select
               value={draft.target_season}
-              onChange={(e) =>
-                update("target_season", e.target.value as TargetSeason)
-              }
+              onChange={(e) => update("target_season", e.target.value as TargetSeason)}
               className={SELECT_CLS}
             >
               <option value="summer">Summer</option>
@@ -253,7 +350,15 @@ export function ExpandedRow({
               <option value="spring">Spring</option>
             </select>
           </Field>
-          <Field label="Deadline">
+          <Field
+            label="Deadline"
+            confidence={conf.deadline_at}
+            canRevert={
+              snapForDraft("deadline_at") !== null &&
+              draft.deadline_at !== snapForDraft("deadline_at")
+            }
+            onRevert={() => revertField("deadline_at")}
+          >
             <input
               type="date"
               value={draft.deadline_at}
@@ -261,7 +366,15 @@ export function ExpandedRow({
               className={INPUT_CLS}
             />
           </Field>
-          <Field label="Posted">
+          <Field
+            label="Posted"
+            confidence={conf.posted_at}
+            canRevert={
+              snapForDraft("posted_at") !== null &&
+              draft.posted_at !== snapForDraft("posted_at")
+            }
+            onRevert={() => revertField("posted_at")}
+          >
             <input
               type="date"
               value={draft.posted_at}
@@ -269,7 +382,15 @@ export function ExpandedRow({
               className={INPUT_CLS}
             />
           </Field>
-          <Field label="Min grad year">
+          <Field
+            label="Min grad year"
+            confidence={conf.min_grad_year}
+            canRevert={
+              snapForDraft("min_grad_year") !== null &&
+              draft.min_grad_year !== snapForDraft("min_grad_year")
+            }
+            onRevert={() => revertField("min_grad_year")}
+          >
             <input
               type="number"
               min={2024}
@@ -280,7 +401,15 @@ export function ExpandedRow({
               placeholder="2027"
             />
           </Field>
-          <Field label="Max grad year">
+          <Field
+            label="Max grad year"
+            confidence={conf.max_grad_year}
+            canRevert={
+              snapForDraft("max_grad_year") !== null &&
+              draft.max_grad_year !== snapForDraft("max_grad_year")
+            }
+            onRevert={() => revertField("max_grad_year")}
+          >
             <input
               type="number"
               min={2024}
@@ -291,7 +420,15 @@ export function ExpandedRow({
               placeholder="2029"
             />
           </Field>
-          <Field label="Work model">
+          <Field
+            label="Work model"
+            confidence={conf.work_model}
+            canRevert={
+              snapForDraft("work_model") !== null &&
+              (draft.work_model || "") !== snapForDraft("work_model")
+            }
+            onRevert={() => revertField("work_model")}
+          >
             <select
               value={draft.work_model}
               onChange={(e) =>
@@ -305,7 +442,16 @@ export function ExpandedRow({
               <option value="onsite">Onsite</option>
             </select>
           </Field>
-          <Field label="Relocation">
+          <Field
+            label="Relocation"
+            confidence={conf.relocation_assistance}
+            canRevert={
+              snapForDraft("relocation_assistance") !== null &&
+              (draft.relocation_assistance || "") !==
+                snapForDraft("relocation_assistance")
+            }
+            onRevert={() => revertField("relocation_assistance")}
+          >
             <select
               value={draft.relocation_assistance}
               onChange={(e) =>
@@ -321,7 +467,16 @@ export function ExpandedRow({
               <option value="not_provided">Not provided</option>
             </select>
           </Field>
-          <Field label="$/hr">
+          <Field
+            label="$/hr"
+            confidence={conf.compensation_hourly_dollars}
+            canRevert={
+              snapForDraft("compensation_hourly_dollars") !== null &&
+              draft.compensation_hourly_dollars !==
+                snapForDraft("compensation_hourly_dollars")
+            }
+            onRevert={() => revertField("compensation_hourly_dollars")}
+          >
             <input
               type="number"
               min={0}
@@ -366,17 +521,13 @@ export function ExpandedRow({
             />
           </Field>
         </Grid>
-        <Field label="Company notes (apply to every role here)" wide>
-          {companyNotesLoaded ? (
-            <textarea
-              rows={3}
-              value={draft.company_notes}
-              onChange={(e) => update("company_notes", e.target.value)}
-              className={TEXTAREA_CLS}
-            />
-          ) : (
-            <p className="text-xs text-muted-foreground">Loading…</p>
-          )}
+        <Field label="Company notes (apply to every role at this company)" wide>
+          <textarea
+            rows={3}
+            value={draft.company_notes}
+            onChange={(e) => update("company_notes", e.target.value)}
+            className={TEXTAREA_CLS}
+          />
         </Field>
       </Section>
 
@@ -400,18 +551,61 @@ export function ExpandedRow({
         </div>
       )}
 
-      <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border pt-3">
+      <div className="sticky bottom-0 -mx-4 flex items-center justify-end gap-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur md:relative md:mx-0 md:bg-transparent md:pt-6 md:backdrop-blur-none">
         <span className="mr-auto text-xs text-muted-foreground">
-          {dirty.length === 0
-            ? "No changes"
-            : `${dirty.length} change${dirty.length === 1 ? "" : "s"} pending`}
+          {isDraft ? (
+            <span className="font-medium text-amber-500">Draft</span>
+          ) : dirty.length === 0 ? (
+            reverting ? (
+              "Reverting…"
+            ) : (
+              "All saved"
+            )
+          ) : (
+            `${dirty.length} change${dirty.length === 1 ? "" : "s"} pending`
+          )}
         </span>
+        {!isDraft && (
+          confirmDelete ? (
+            <>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setConfirmDelete(false)}
+                disabled={pending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={handleDelete}
+                disabled={pending}
+              >
+                Confirm delete
+              </Button>
+            </>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setConfirmDelete(true)}
+              disabled={pending}
+              className="text-destructive hover:text-destructive"
+            >
+              Delete
+            </Button>
+          )
+        )}
         <Button
           type="button"
           variant="ghost"
           size="sm"
           onClick={handleDiscard}
-          disabled={pending}
+          disabled={pending || (!isDraft && dirty.length === 0)}
         >
           Discard
         </Button>
@@ -419,9 +613,9 @@ export function ExpandedRow({
           type="button"
           size="sm"
           onClick={handleSave}
-          disabled={pending}
+          disabled={pending || (!isDraft && dirty.length === 0)}
         >
-          {pending ? "Saving…" : "Save changes"}
+          {pending ? "Saving…" : isDraft ? "Save draft" : "Save changes"}
         </Button>
       </div>
     </div>
@@ -459,16 +653,34 @@ function Field({
   label,
   children,
   wide,
+  confidence,
+  canRevert,
+  onRevert,
 }: {
   label: string;
   children: React.ReactNode;
   wide?: boolean;
+  confidence?: ConfidenceTier;
+  canRevert?: boolean;
+  onRevert?: () => void;
 }) {
   return (
     <div className={wide ? "space-y-1 sm:col-span-2 lg:col-span-3" : "space-y-1"}>
-      <label className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-        {label}
-      </label>
+      <div className="flex items-center gap-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+        <span>{label}</span>
+        <ConfidenceBadge confidence={confidence} />
+        {canRevert && onRevert && (
+          <button
+            type="button"
+            onClick={onRevert}
+            className="ml-auto text-muted-foreground hover:text-foreground"
+            title="Revert to auto-extracted value"
+            aria-label="Revert to auto-extracted value"
+          >
+            ↺
+          </button>
+        )}
+      </div>
       {children}
     </div>
   );

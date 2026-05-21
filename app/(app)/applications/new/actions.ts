@@ -96,7 +96,27 @@ export async function saveNewApplication(formData: FormData) {
   // 4. Find-or-create company
   const company = await findOrCreateCompany(supabase, companyName);
 
-  // 5. Create role
+  // 5. Create role with frozen extraction snapshot for per-field revert later
+  const extractionSnapshot = extracted
+    ? {
+        values: {
+          company: extracted.company,
+          title: extracted.title,
+          locations: extracted.locations.map((l) => l.text),
+          deadline_at: extracted.deadline_at,
+          posted_at: extracted.posted_at,
+          work_model: extracted.work_model,
+          target_year: extracted.target_year,
+          target_season: extracted.target_season,
+          min_grad_year: extracted.min_grad_year,
+          max_grad_year: extracted.max_grad_year,
+          relocation_assistance: extracted.relocation_assistance,
+          compensation_hourly_dollars: extracted.compensation_hourly_dollars,
+        },
+        confidences: extracted.confidences,
+      }
+    : { values: {}, confidences: {} };
+
   const role = await createRole(supabase, {
     companyId: company.id,
     title: roleTitle,
@@ -113,15 +133,16 @@ export async function saveNewApplication(formData: FormData) {
     maxGradYear: extracted?.max_grad_year ?? null,
     relocationAssistance: extracted?.relocation_assistance ?? null,
     extractionConfidences: extracted?.confidences ?? {},
+    extractionSnapshot,
     source: "manual",
   });
 
-  // 6. Create application
+  // 6. Create application in draft state; user confirms via Save on detail page
   const application = await createApplication(supabase, {
     userId: user.id,
     roleId: role.id,
     notes,
-    triageState: "active",
+    triageState: "draft",
   });
 
   revalidatePath("/pipeline");

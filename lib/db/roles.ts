@@ -3,6 +3,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   ConfidenceTier,
+  ExtractionSnapshot,
   RelocationAssistance,
   Role,
   RoleLocation,
@@ -29,6 +30,7 @@ export interface CreateRoleInput {
   workModel?: WorkModel | null;
   compensationHourlyDollars?: number | null;
   extractionConfidences?: Record<string, ConfidenceTier>;
+  extractionSnapshot?: ExtractionSnapshot;
 }
 
 const ROLE_INSERT_DEFAULTS = {
@@ -60,6 +62,8 @@ export async function create(
       work_model: input.workModel ?? null,
       compensation_hourly_dollars: input.compensationHourlyDollars ?? null,
       extraction_confidences: input.extractionConfidences ?? {},
+      extraction_snapshot:
+        input.extractionSnapshot ?? { values: {}, confidences: {} },
     })
     .select("*")
     .single();
