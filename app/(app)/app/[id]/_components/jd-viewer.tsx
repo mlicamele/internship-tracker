@@ -1,12 +1,4 @@
-"use client";
-
-import { useState } from "react";
-
-const COLLAPSE_THRESHOLD = 1500;
-
 export function JdViewer({ body }: { body: string | null }) {
-  const [expanded, setExpanded] = useState(false);
-
   if (!body || !body.trim()) {
     return (
       <div className="space-y-2">
@@ -20,31 +12,19 @@ export function JdViewer({ body }: { body: string | null }) {
     );
   }
 
-  const shouldCollapse = body.length > COLLAPSE_THRESHOLD;
-  const visibleBody = shouldCollapse && !expanded ? body.slice(0, COLLAPSE_THRESHOLD) : body;
-
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">
           Job description
         </h2>
-        {shouldCollapse && (
-          <button
-            type="button"
-            onClick={() => setExpanded(!expanded)}
-            className="text-xs text-muted-foreground hover:text-foreground"
-          >
-            {expanded ? "Collapse" : `Show full (${body.length.toLocaleString()} chars)`}
-          </button>
-        )}
+        <span className="text-xs text-muted-foreground">
+          {body.length.toLocaleString()} chars
+        </span>
       </div>
-      <div className="rounded-md border border-border bg-card/40 p-4">
+      <div className="max-h-[480px] overflow-y-auto rounded-md border border-border bg-card/40 p-4">
         <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed">
-          {visibleBody}
-          {shouldCollapse && !expanded && (
-            <span className="text-muted-foreground">…</span>
-          )}
+          {body}
         </pre>
       </div>
     </div>

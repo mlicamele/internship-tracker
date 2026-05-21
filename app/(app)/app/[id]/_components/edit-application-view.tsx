@@ -5,20 +5,36 @@ import { useRouter } from "next/navigation";
 import type { ApplicationRow } from "@/lib/db/applications";
 import { Button } from "@/components/ui/button";
 import type {
+  ApplicationStatus,
   ConfidenceTier,
   ExtractionSnapshot,
+  Interview,
+  InterviewType,
   RelocationAssistance,
+  StatusEvent,
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
+import { ExternalLink, Plus } from "@/components/icons";
+import {
+  STATUS_OPTIONS,
+  StatusPill,
+  formatDate,
+} from "@/app/(app)/pipeline/_components/cell-formatters";
+import { transitionStatusAction } from "@/app/(app)/pipeline/actions";
 import { ConfidenceBadge } from "./confidence-badge";
+import { JdViewer } from "./jd-viewer";
+import { StatusTimeline } from "./status-timeline";
 import {
   commitDraftAction,
+  createInterviewAction,
   deleteApplicationAction,
+  deleteInterviewAction,
   revertRoleFieldAction,
   saveCompanyNotesAction,
   updateCompanyFieldAction,
   updateCompanyNameAction,
+  updateInterviewAction,
   updateNotesAction,
   updateRoleFieldAction,
 } from "../actions";
@@ -28,6 +44,46 @@ const INPUT_CLS =
 const SELECT_CLS = INPUT_CLS;
 const TEXTAREA_CLS =
   "flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
+
+const ROLE_FIELDS = [
+  "title",
+  "locations",
+  "deadline_at",
+  "posted_at",
+  "min_grad_year",
+  "max_grad_year",
+  "target_year",
+  "target_season",
+  "work_model",
+  "relocation_assistance",
+  "compensation_hourly_dollars",
+] as const;
+type RoleFieldKey = (typeof ROLE_FIELDS)[number];
+
+const TYPE_LABEL: Record<InterviewType, string> = {
+  phone_screen: "Phone screen",
+  technical: "Technical",
+  behavioral: "Behavioral",
+  system_design: "System design",
+  onsite: "Onsite",
+  final: "Final",
+  other: "Other",
+};
+const TYPE_OPTIONS = Object.entries(TYPE_LABEL).map(([value, label]) => ({
+  value: value as InterviewType,
+  label,
+}));
+
+interface InterviewDraft {
+  type: InterviewType;
+  scheduled_at: string; // datetime-local
+  duration_minutes: string;
+  meeting_url: string;
+  location: string;
+  interviewer_names: string;
+  notes: string;
+  outcome: string;
+}
 
 interface Draft {
   // Role
@@ -49,23 +105,56 @@ interface Draft {
   // Notes
   app_notes: string;
   company_notes: string;
+  // Application
+  status: ApplicationStatus;
 }
 
-const ROLE_FIELDS = [
-  "title",
-  "locations",
-  "deadline_at",
-  "posted_at",
-  "min_grad_year",
-  "max_grad_year",
-  "target_year",
-  "target_season",
-  "work_model",
-  "relocation_assistance",
-  "compensation_hourly_dollars",
-] as const;
+function isoToDatetimeLocal(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
-type RoleFieldKey = (typeof ROLE_FIELDS)[number];
+function interviewToDraft(i: Interview): InterviewDraft {
+  return {
+    type: i.type,
+    scheduled_at: isoToDatetimeLocal(i.scheduled_at),
+    duration_minutes:
+      i.duration_minutes !== null ? String(i.duration_minutes) : "",
+    meeting_url: i.meeting_url ?? "",
+    location: i.location ?? "",
+    interviewer_names: i.interviewer_names ?? "",
+    notes: i.notes ?? "",
+    outcome: i.outcome ?? "",
+  };
+}
+
+function emptyInterviewDraft(): InterviewDraft {
+  return {
+    type: "phone_screen",
+    scheduled_at: "",
+    duration_minutes: "",
+    meeting_url: "",
+    location: "",
+    interviewer_names: "",
+    notes: "",
+    outcome: "",
+  };
+}
+
+function interviewDraftToFormData(d: InterviewDraft): FormData {
+  const fd = new FormData();
+  fd.set("type", d.type);
+  fd.set("scheduled_at", d.scheduled_at);
+  fd.set("duration_minutes", d.duration_minutes);
+  fd.set("meeting_url", d.meeting_url);
+  fd.set("location", d.location);
+  fd.set("interviewer_names", d.interviewer_names);
+  fd.set("notes", d.notes);
+  fd.set("outcome", d.outcome);
+  return fd;
+}
 
 function draftFromApplication(
   application: ApplicationRow,
@@ -93,13 +182,10 @@ function draftFromApplication(
     company_hq_city: c.hq_city ?? "",
     app_notes: application.notes,
     company_notes: companyNotes,
+    status: application.status,
   };
 }
 
-/**
- * Build the snapshot-equivalent string for a given role field so we can
- * compare against the user's current draft and surface the revert ↺ button.
- */
 function snapshotAsDraftValue(
   snapshot: ExtractionSnapshot,
   field: RoleFieldKey
@@ -121,11 +207,15 @@ function snapshotAsDraftValue(
   return null;
 }
 
-export function RoleEditForm({
+export function EditApplicationView({
   application,
+  interviews,
+  statusEvents,
   initialCompanyNotes,
 }: {
   application: ApplicationRow;
+  interviews: Interview[];
+  statusEvents: StatusEvent[];
   initialCompanyNotes: string;
 }) {
   const router = useRouter();
@@ -136,17 +226,39 @@ export function RoleEditForm({
     [application, initialCompanyNotes]
   );
   const [draft, setDraft] = useState<Draft>(initial);
+
+  // Per-field "user clicked Revert"; on Save we call revertRoleFieldAction
+  // (which restores both value + confidence) instead of updateRoleFieldAction.
+  const [revertedFields, setRevertedFields] = useState<Set<RoleFieldKey>>(
+    () => new Set()
+  );
+
+  // Interview drafts
+  const [interviewEdits, setInterviewEdits] = useState<
+    Record<string, InterviewDraft>
+  >({});
+  const [interviewDeletes, setInterviewDeletes] = useState<Set<string>>(
+    () => new Set()
+  );
+  const [pendingNewInterviews, setPendingNewInterviews] = useState<
+    InterviewDraft[]
+  >([]);
+
   const [pending, startTransition] = useTransition();
-  const [reverting, startRevert] = useTransition();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
 
-  // Resync local draft when the server data refreshes after an action. This
-  // is a legitimate external-sync effect — the source of truth (server data
-  // memoized into `initial`) changed, so the local draft has to catch up.
+  // Resync local draft + interview pending state when server data refreshes.
+  // This is a legitimate external-sync effect (server data → local form
+  // state); the lint rule's "synchronous setState in effect" warning fires
+  // on the first call and we accept it.
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setDraft(initial);
+    setRevertedFields(new Set());
+    setInterviewEdits({});
+    setInterviewDeletes(new Set());
+    setPendingNewInterviews([]);
   }, [initial]);
 
   const dirty = useMemo(() => {
@@ -155,15 +267,34 @@ export function RoleEditForm({
     );
   }, [draft, initial]);
 
+  const hasInterviewChanges =
+    Object.keys(interviewEdits).length > 0 ||
+    interviewDeletes.size > 0 ||
+    pendingNewInterviews.length > 0;
+  const dirtyCount = dirty.length + (hasInterviewChanges ? 1 : 0);
+
   function update<K extends keyof Draft>(key: K, value: Draft[K]) {
     setDraft((d) => ({ ...d, [key]: value }));
+    if (ROLE_FIELDS.includes(key as RoleFieldKey)) {
+      // A normal edit cancels any pending revert for this field
+      setRevertedFields((s) => {
+        if (!s.has(key as RoleFieldKey)) return s;
+        const next = new Set(s);
+        next.delete(key as RoleFieldKey);
+        return next;
+      });
+    }
   }
 
   function revertField(field: RoleFieldKey) {
-    startRevert(async () => {
-      await revertRoleFieldAction(application.id, field);
-      router.refresh();
-    });
+    const snap = snapForDraft(field);
+    if (snap === null) return;
+    setDraft((d) => ({ ...d, [field]: snap as Draft[typeof field] }));
+    setRevertedFields((s) => new Set(s).add(field));
+  }
+
+  function snapForDraft(field: RoleFieldKey): string | null {
+    return snapshotAsDraftValue(snapshot, field);
   }
 
   async function handleSave() {
@@ -174,17 +305,23 @@ export function RoleEditForm({
       const appId = application.id;
       const companyId = application.role.company.id;
 
+      // Role / company / notes / status changes
       for (const field of dirty) {
         if ((ROLE_FIELDS as readonly string[]).includes(field)) {
-          tasks.push(
-            updateRoleFieldAction(
-              appId,
-              field as RoleFieldKey,
-              draft[field] as string
-            ).then((r) => {
-              if (!r.ok) errs.push(`${field}: ${r.error}`);
-            })
-          );
+          const k = field as RoleFieldKey;
+          if (revertedFields.has(k)) {
+            tasks.push(
+              revertRoleFieldAction(appId, k).then((r) => {
+                if (!r.ok) errs.push(`revert ${k}: ${r.error}`);
+              })
+            );
+          } else {
+            tasks.push(
+              updateRoleFieldAction(appId, k, draft[k] as string).then((r) => {
+                if (!r.ok) errs.push(`${k}: ${r.error}`);
+              })
+            );
+          }
         } else if (field === "company_name") {
           tasks.push(
             updateCompanyNameAction(appId, draft.company_name).then((r) => {
@@ -213,7 +350,32 @@ export function RoleEditForm({
           tasks.push(updateNotesAction(appId, draft.app_notes));
         } else if (field === "company_notes") {
           tasks.push(saveCompanyNotesAction(companyId, draft.company_notes));
+        } else if (field === "status") {
+          tasks.push(transitionStatusAction(appId, draft.status));
         }
+      }
+
+      // Interview operations
+      for (const id of interviewDeletes) {
+        tasks.push(
+          deleteInterviewAction(appId, id).catch((e) =>
+            errs.push(`delete interview: ${e?.message ?? e}`)
+          )
+        );
+      }
+      for (const [id, d] of Object.entries(interviewEdits)) {
+        tasks.push(
+          updateInterviewAction(appId, id, interviewDraftToFormData(d)).catch(
+            (e) => errs.push(`edit interview: ${e?.message ?? e}`)
+          )
+        );
+      }
+      for (const d of pendingNewInterviews) {
+        tasks.push(
+          createInterviewAction(appId, interviewDraftToFormData(d)).catch((e) =>
+            errs.push(`add interview: ${e?.message ?? e}`)
+          )
+        );
       }
 
       await Promise.all(tasks);
@@ -223,7 +385,6 @@ export function RoleEditForm({
         return;
       }
 
-      // If this was a draft, promote it to active so it shows up in pipeline
       if (isDraft) {
         const r = await commitDraftAction(appId);
         if (!r.ok) {
@@ -231,14 +392,12 @@ export function RoleEditForm({
           return;
         }
       }
-
       router.refresh();
     });
   }
 
   function handleDiscard() {
     if (isDraft) {
-      // Discarding a draft = delete the orphan entirely
       if (
         !confirm(
           "Discard this draft? The role and its extraction will be deleted."
@@ -249,8 +408,11 @@ export function RoleEditForm({
         await deleteApplicationAction(application.id);
       });
     } else {
-      // Saved app: just reset local draft state
       setDraft(initial);
+      setRevertedFields(new Set());
+      setInterviewEdits({});
+      setInterviewDeletes(new Set());
+      setPendingNewInterviews([]);
       setErrors([]);
     }
   }
@@ -271,8 +433,19 @@ export function RoleEditForm({
     ConfidenceTier
   >;
 
-  function snapForDraft(field: RoleFieldKey): string | null {
-    return snapshotAsDraftValue(snapshot, field);
+  // Interview render helpers
+  function effectiveInterviewDraft(i: Interview): InterviewDraft {
+    return interviewEdits[i.id] ?? interviewToDraft(i);
+  }
+  function updateInterviewDraft(
+    id: string,
+    initial: InterviewDraft,
+    patch: Partial<InterviewDraft>
+  ) {
+    setInterviewEdits((m) => ({
+      ...m,
+      [id]: { ...initial, ...patch },
+    }));
   }
 
   return (
@@ -283,7 +456,10 @@ export function RoleEditForm({
             label="Title"
             wide
             confidence={conf.title}
-            canRevert={snapForDraft("title") !== null && draft.title !== snapForDraft("title")}
+            canRevert={
+              snapForDraft("title") !== null &&
+              draft.title !== snapForDraft("title")
+            }
             onRevert={() => revertField("title")}
           >
             <input
@@ -327,7 +503,6 @@ export function RoleEditForm({
               value={draft.target_year}
               onChange={(e) => update("target_year", e.target.value)}
               className={INPUT_CLS}
-              placeholder="2027"
             />
           </Field>
           <Field
@@ -341,7 +516,9 @@ export function RoleEditForm({
           >
             <select
               value={draft.target_season}
-              onChange={(e) => update("target_season", e.target.value as TargetSeason)}
+              onChange={(e) =>
+                update("target_season", e.target.value as TargetSeason)
+              }
               className={SELECT_CLS}
             >
               <option value="summer">Summer</option>
@@ -398,7 +575,6 @@ export function RoleEditForm({
               value={draft.min_grad_year}
               onChange={(e) => update("min_grad_year", e.target.value)}
               className={INPUT_CLS}
-              placeholder="2027"
             />
           </Field>
           <Field
@@ -417,7 +593,6 @@ export function RoleEditForm({
               value={draft.max_grad_year}
               onChange={(e) => update("max_grad_year", e.target.value)}
               className={INPUT_CLS}
-              placeholder="2029"
             />
           </Field>
           <Field
@@ -486,7 +661,6 @@ export function RoleEditForm({
                 update("compensation_hourly_dollars", e.target.value)
               }
               className={INPUT_CLS}
-              placeholder="50"
             />
           </Field>
         </Grid>
@@ -517,7 +691,6 @@ export function RoleEditForm({
               value={draft.company_hq_city}
               onChange={(e) => update("company_hq_city", e.target.value)}
               className={INPUT_CLS}
-              placeholder="San Francisco, CA"
             />
           </Field>
         </Grid>
@@ -532,6 +705,26 @@ export function RoleEditForm({
       </Section>
 
       <Section title="This application">
+        {!isDraft && (
+          <Field label="Status">
+            <select
+              value={draft.status}
+              onChange={(e) =>
+                update("status", e.target.value as ApplicationStatus)
+              }
+              className={SELECT_CLS}
+            >
+              {STATUS_OPTIONS.map(({ value, label }) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <span className="ml-2 inline-block align-middle">
+              <StatusPill status={draft.status} />
+            </span>
+          </Field>
+        )}
         <Field label="Notes" wide>
           <textarea
             rows={4}
@@ -542,6 +735,65 @@ export function RoleEditForm({
           />
         </Field>
       </Section>
+
+      {!isDraft && (
+        <Section title="Interviews">
+          <div className="space-y-3">
+            {interviews
+              .filter((i) => !interviewDeletes.has(i.id))
+              .map((i) => {
+                const d = effectiveInterviewDraft(i);
+                return (
+                  <InterviewEditCard
+                    key={i.id}
+                    draft={d}
+                    onChange={(patch) =>
+                      updateInterviewDraft(i.id, d, patch)
+                    }
+                    onDelete={() =>
+                      setInterviewDeletes((s) => new Set(s).add(i.id))
+                    }
+                  />
+                );
+              })}
+            {pendingNewInterviews.map((d, idx) => (
+              <InterviewEditCard
+                key={`new-${idx}`}
+                draft={d}
+                isNew
+                onChange={(patch) =>
+                  setPendingNewInterviews((arr) =>
+                    arr.map((x, i) => (i === idx ? { ...x, ...patch } : x))
+                  )
+                }
+                onDelete={() =>
+                  setPendingNewInterviews((arr) =>
+                    arr.filter((_, i) => i !== idx)
+                  )
+                }
+              />
+            ))}
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                setPendingNewInterviews((arr) => [
+                  ...arr,
+                  emptyInterviewDraft(),
+                ])
+              }
+            >
+              <Plus className="size-3" />
+              Add interview
+            </Button>
+          </div>
+        </Section>
+      )}
+
+      {!isDraft && <StatusTimeline events={statusEvents} />}
+
+      <JdViewer body={application.role.jd_body_text} />
 
       {errors.length > 0 && (
         <div className="rounded-md border border-destructive/40 bg-destructive/10 p-2 text-xs text-destructive">
@@ -555,18 +807,14 @@ export function RoleEditForm({
         <span className="mr-auto text-xs text-muted-foreground">
           {isDraft ? (
             <span className="font-medium text-amber-500">Draft</span>
-          ) : dirty.length === 0 ? (
-            reverting ? (
-              "Reverting…"
-            ) : (
-              "All saved"
-            )
+          ) : dirtyCount === 0 ? (
+            "All saved"
           ) : (
-            `${dirty.length} change${dirty.length === 1 ? "" : "s"} pending`
+            `${dirtyCount} change${dirtyCount === 1 ? "" : "s"} pending`
           )}
         </span>
-        {!isDraft && (
-          confirmDelete ? (
+        {!isDraft &&
+          (confirmDelete ? (
             <>
               <Button
                 type="button"
@@ -598,14 +846,13 @@ export function RoleEditForm({
             >
               Delete
             </Button>
-          )
-        )}
+          ))}
         <Button
           type="button"
           variant="ghost"
           size="sm"
           onClick={handleDiscard}
-          disabled={pending || (!isDraft && dirty.length === 0)}
+          disabled={pending || (!isDraft && dirtyCount === 0)}
         >
           Discard
         </Button>
@@ -613,7 +860,7 @@ export function RoleEditForm({
           type="button"
           size="sm"
           onClick={handleSave}
-          disabled={pending || (!isDraft && dirty.length === 0)}
+          disabled={pending || (!isDraft && dirtyCount === 0)}
         >
           {pending ? "Saving…" : isDraft ? "Save draft" : "Save changes"}
         </Button>
@@ -674,7 +921,7 @@ function Field({
             type="button"
             onClick={onRevert}
             className="ml-auto text-muted-foreground hover:text-foreground"
-            title="Revert to auto-extracted value"
+            title="Revert to auto-extracted value (will be saved when you click Save)"
             aria-label="Revert to auto-extracted value"
           >
             ↺
@@ -682,6 +929,135 @@ function Field({
         )}
       </div>
       {children}
+    </div>
+  );
+}
+
+function InterviewEditCard({
+  draft,
+  isNew,
+  onChange,
+  onDelete,
+}: {
+  draft: InterviewDraft;
+  isNew?: boolean;
+  onChange: (patch: Partial<InterviewDraft>) => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="rounded-md border border-border bg-card/30 p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-2 text-xs">
+          <select
+            value={draft.type}
+            onChange={(e) => onChange({ type: e.target.value as InterviewType })}
+            className="h-7 rounded-sm border border-input bg-transparent px-1.5 text-xs"
+          >
+            {TYPE_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          {isNew && (
+            <span className="text-[10px] font-medium uppercase tracking-wider text-emerald-500">
+              New
+            </span>
+          )}
+        </span>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={onDelete}
+          className="text-destructive hover:text-destructive"
+        >
+          {isNew ? "Remove" : "Delete"}
+        </Button>
+      </div>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          When
+          <input
+            type="datetime-local"
+            value={draft.scheduled_at}
+            onChange={(e) => onChange({ scheduled_at: e.target.value })}
+            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
+          />
+        </label>
+        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Duration (min)
+          <input
+            type="number"
+            min={5}
+            step={5}
+            value={draft.duration_minutes}
+            onChange={(e) => onChange({ duration_minutes: e.target.value })}
+            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
+          />
+        </label>
+        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:col-span-2">
+          Meeting link
+          <input
+            type="url"
+            value={draft.meeting_url}
+            onChange={(e) => onChange({ meeting_url: e.target.value })}
+            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
+            placeholder="https://meet.google.com/…"
+          />
+        </label>
+        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Location
+          <input
+            type="text"
+            value={draft.location}
+            onChange={(e) => onChange({ location: e.target.value })}
+            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
+            placeholder="Office or city"
+          />
+        </label>
+        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Interviewer(s)
+          <input
+            type="text"
+            value={draft.interviewer_names}
+            onChange={(e) => onChange({ interviewer_names: e.target.value })}
+            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
+          />
+        </label>
+        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:col-span-2">
+          Notes
+          <textarea
+            rows={2}
+            value={draft.notes}
+            onChange={(e) => onChange({ notes: e.target.value })}
+            className="block w-full rounded-sm border border-input bg-transparent px-2 py-1 text-sm normal-case tracking-normal"
+          />
+        </label>
+        <label className="space-y-1 text-[10px] font-medium uppercase tracking-wider text-muted-foreground sm:col-span-2">
+          Outcome
+          <input
+            type="text"
+            value={draft.outcome}
+            onChange={(e) => onChange({ outcome: e.target.value })}
+            className="block h-8 w-full rounded-sm border border-input bg-transparent px-2 text-sm normal-case tracking-normal"
+            placeholder="Passed / Rejected / Awaiting"
+          />
+        </label>
+      </div>
+      {draft.meeting_url && !isNew && (
+        <a
+          href={draft.meeting_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:underline"
+        >
+          Open meeting <ExternalLink className="size-3" />
+        </a>
+      )}
+      <p className="text-[10px] text-muted-foreground">
+        Saved time: {draft.scheduled_at ? formatDate(draft.scheduled_at) : "TBD"}
+      </p>
     </div>
   );
 }
