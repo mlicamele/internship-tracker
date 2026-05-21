@@ -14,7 +14,7 @@ function SubmitButton() {
   const { pending } = useFormStatus();
   return (
     <Button type="submit" disabled={pending} className="min-h-11 px-6">
-      {pending ? "Extracting…" : "Add"}
+      {pending ? "Extracting…" : "Save"}
     </Button>
   );
 }
@@ -108,9 +108,9 @@ export function NewApplicationForm({ error }: { error?: string }) {
       <div className="sticky bottom-0 -mx-4 flex items-center justify-end gap-2 border-t border-border bg-background/95 px-4 py-3 backdrop-blur md:relative md:mx-0 md:bg-transparent md:pt-6 md:backdrop-blur-none">
         <Link
           href="/pipeline"
-          className={cn(buttonVariants({ variant: "outline" }), "min-h-11 px-4")}
+          className={cn(buttonVariants({ variant: "ghost" }), "min-h-11 px-4")}
         >
-          Cancel
+          Discard
         </Link>
         <SubmitButton />
       </div>

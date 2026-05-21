@@ -18,10 +18,23 @@ export interface ApplicationRow extends Application {
       "id" | "name" | "industry_tags" | "hq_city" | "hq_lat" | "hq_lng"
     >;
   };
-  interviews: Pick<Interview, "id" | "type" | "scheduled_at" | "meeting_url">[];
+  interviews: InterviewSummary[];
   /** Derived: the soonest upcoming interview (or undated). Null if none. */
-  next_interview: Pick<Interview, "id" | "type" | "scheduled_at" | "meeting_url"> | null;
+  next_interview: InterviewSummary | null;
 }
+
+export type InterviewSummary = Pick<
+  Interview,
+  | "id"
+  | "type"
+  | "scheduled_at"
+  | "duration_minutes"
+  | "meeting_url"
+  | "location"
+  | "interviewer_names"
+  | "notes"
+  | "outcome"
+>;
 
 export interface CreateApplicationInput {
   userId: string;
@@ -37,7 +50,7 @@ const APP_WITH_RELATIONS_SELECT = `
     *,
     company:companies(id, name, industry_tags, hq_city, hq_lat, hq_lng)
   ),
-  interviews(id, type, scheduled_at, meeting_url)
+  interviews(id, type, scheduled_at, duration_minutes, meeting_url, location, interviewer_names, notes, outcome)
 `;
 
 function withNextInterview(app: Omit<ApplicationRow, "next_interview">): ApplicationRow {

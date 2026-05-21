@@ -1,7 +1,7 @@
 "use client";
 
 import { Fragment, useMemo, useState } from "react";
-import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   type ColumnFiltersState,
   type ExpandedState,
@@ -15,7 +15,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table";
 import { cn } from "@/lib/utils";
-import { ChevronRight, ChevronDown } from "@/components/icons";
+import { ChevronRight, ChevronDown, ExternalLink } from "@/components/icons";
 import { ExpandedRow } from "./expanded-row";
 import {
   DEFAULT_HIDDEN_COLUMNS,
@@ -33,7 +33,6 @@ export function PipelineTable({
   rows: PipelineRow[];
   emptyState?: React.ReactNode;
 }) {
-  const router = useRouter();
   const [sorting, setSorting] = useState<SortingState>([
     { id: "deadline", desc: false },
   ]);
@@ -113,9 +112,8 @@ export function PipelineTable({
                 return (
                   <Fragment key={row.id}>
                     <tr
-                      onClick={() => router.push(`/app/${row.original.id}`)}
                       className={cn(
-                        "cursor-pointer border-b border-border last:border-b-0 transition-colors hover:bg-muted/30",
+                        "border-b border-border last:border-b-0 transition-colors hover:bg-muted/20",
                         isExpanded && "bg-muted/40"
                       )}
                     >
@@ -130,28 +128,38 @@ export function PipelineTable({
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </td>
                       ))}
-                      <td className="w-8 pr-3 text-right">
-                        <button
-                          type="button"
-                          aria-label={isExpanded ? "Collapse row" : "Expand row"}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            row.toggleExpanded();
-                          }}
-                          className="ml-auto inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
-                        >
-                          {isExpanded ? (
-                            <ChevronDown className="size-4" />
-                          ) : (
-                            <ChevronRight className="size-4" />
-                          )}
-                        </button>
+                      <td className="w-16 pr-3 text-right">
+                        <div className="inline-flex items-center gap-1">
+                          <button
+                            type="button"
+                            aria-label={isExpanded ? "Collapse row" : "Expand row"}
+                            onClick={() => row.toggleExpanded()}
+                            className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                          >
+                            {isExpanded ? (
+                              <ChevronDown className="size-4" />
+                            ) : (
+                              <ChevronRight className="size-4" />
+                            )}
+                          </button>
+                          <Link
+                            href={`/app/${row.original.id}`}
+                            aria-label="Open full detail page"
+                            className="inline-flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-muted hover:text-foreground"
+                            title="Open detail page"
+                          >
+                            <ExternalLink className="size-3.5" />
+                          </Link>
+                        </div>
                       </td>
                     </tr>
                     {isExpanded && (
                       <tr className="border-b border-border last:border-b-0 bg-muted/10">
                         <td colSpan={row.getVisibleCells().length + 1} className="p-0">
-                          <ExpandedRow application={row.original} />
+                          <ExpandedRow
+                            application={row.original}
+                            onClose={() => row.toggleExpanded(false)}
+                          />
                         </td>
                       </tr>
                     )}

@@ -2,8 +2,15 @@
 
 import type { ColumnDef, Row } from "@tanstack/react-table";
 import type { ApplicationRow } from "@/lib/db/applications";
-import type { ApplicationStatus } from "@/lib/db/types";
+import type {
+  ApplicationStatus,
+  RelocationAssistance,
+  TargetSeason,
+  WorkModel,
+} from "@/lib/db/types";
 import { ArrowUpDown } from "@/components/icons";
+import { updateRoleFieldAction } from "@/app/(app)/app/[id]/actions";
+import { TableInlineCell } from "./table-inline-cell";
 import {
   RelocationAssistanceCell,
   WorkModelCell,
@@ -12,14 +19,17 @@ import {
   formatDistance,
   formatLocations,
   formatGradYearWindow,
-  formatNextInterview,
   formatTargetTerm,
 } from "./cell-formatters";
+import { InterviewPopover } from "./interview-popover";
 import { StatusCell } from "./status-cell";
 
 export interface PipelineRow extends ApplicationRow {
   distance_miles: number | null;
 }
+
+const INPUT_CLS =
+  "h-7 w-full min-w-20 rounded-sm border border-input bg-background px-1.5 text-sm shadow-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring";
 
 const SORT_HEADER = (label: string) => {
   function SortHeader({
@@ -59,7 +69,23 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     id: "role",
     accessorFn: (row) => row.role.title,
     header: SORT_HEADER("Role"),
-    cell: ({ row }) => row.original.role.title,
+    cell: ({ row }) => (
+      <TableInlineCell<string>
+        value={row.original.role.title}
+        display={(v) => <span>{v}</span>}
+        renderInput={({ draft, setDraft, commit, inputRef }) => (
+          <input
+            ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            className={INPUT_CLS}
+          />
+        )}
+        onSave={(v) => updateRoleFieldAction(row.original.id, "title", v)}
+      />
+    ),
     enableHiding: false,
   },
   {
@@ -79,34 +105,152 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     id: "target",
     accessorFn: (row) => row.role.target_year ?? 0,
     header: SORT_HEADER("Target"),
-    cell: ({ row }) =>
-      formatTargetTerm(row.original.role.target_year, row.original.role.target_season),
+    cell: ({ row }) => (
+      <span className="inline-flex items-center gap-1">
+        <TableInlineCell<string>
+          value={row.original.role.target_year ? String(row.original.role.target_year) : ""}
+          display={(v) => (
+            <span>
+              {formatTargetTerm(v ? Number(v) : null, row.original.role.target_season)}
+            </span>
+          )}
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <input
+              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+              type="number"
+              min={2024}
+              max={2032}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              className={`${INPUT_CLS} w-16`}
+            />
+          )}
+          onSave={(v) => updateRoleFieldAction(row.original.id, "target_year", v)}
+        />
+        <TableInlineCell<TargetSeason>
+          value={row.original.role.target_season}
+          display={() => <span />}
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <select
+              ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value as TargetSeason)}
+              onBlur={commit}
+              className={INPUT_CLS}
+            >
+              <option value="summer">Summer</option>
+              <option value="fall">Fall</option>
+              <option value="winter">Winter</option>
+              <option value="spring">Spring</option>
+            </select>
+          )}
+          onSave={(v) => updateRoleFieldAction(row.original.id, "target_season", v)}
+        />
+      </span>
+    ),
   },
   {
     id: "deadline",
     accessorFn: (row) =>
       row.role.deadline_at ? new Date(row.role.deadline_at).getTime() : Number.POSITIVE_INFINITY,
     header: SORT_HEADER("Deadline"),
-    cell: ({ row }) => formatDate(row.original.role.deadline_at),
+    cell: ({ row }) => (
+      <TableInlineCell<string>
+        value={row.original.role.deadline_at ? row.original.role.deadline_at.slice(0, 10) : ""}
+        display={(v) => <span>{formatDate(v ? v + "T00:00:00Z" : null)}</span>}
+        renderInput={({ draft, setDraft, commit, inputRef }) => (
+          <input
+            ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+            type="date"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            className={INPUT_CLS}
+          />
+        )}
+        onSave={(v) => updateRoleFieldAction(row.original.id, "deadline_at", v)}
+      />
+    ),
   },
   {
     id: "location",
     accessorFn: (row) => row.role.locations[0]?.text ?? "",
     header: SORT_HEADER("Location"),
-    cell: ({ row }) => formatLocations(row.original.role.locations),
+    cell: ({ row }) => (
+      <TableInlineCell<string>
+        value={row.original.role.locations.map((l) => l.text).join(", ")}
+        display={() => formatLocations(row.original.role.locations)}
+        renderInput={({ draft, setDraft, commit, inputRef }) => (
+          <input
+            ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+            type="text"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            className={INPUT_CLS}
+            placeholder="San Francisco, NYC, Remote"
+          />
+        )}
+        onSave={(v) => updateRoleFieldAction(row.original.id, "locations", v)}
+      />
+    ),
   },
   {
     id: "work_model",
     accessorFn: (row) => row.role.work_model,
     header: SORT_HEADER("Mode"),
-    cell: ({ row }) => <WorkModelCell model={row.original.role.work_model} />,
+    cell: ({ row }) => (
+      <TableInlineCell<string>
+        value={row.original.role.work_model ?? ""}
+        display={() => <WorkModelCell model={row.original.role.work_model} />}
+        renderInput={({ draft, setDraft, commit, inputRef }) => (
+          <select
+            ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value as WorkModel | "")}
+            onBlur={commit}
+            className={INPUT_CLS}
+          >
+            <option value="">—</option>
+            <option value="remote">Remote</option>
+            <option value="hybrid">Hybrid</option>
+            <option value="onsite">Onsite</option>
+          </select>
+        )}
+        onSave={(v) => updateRoleFieldAction(row.original.id, "work_model", v)}
+      />
+    ),
   },
   {
     id: "compensation",
     accessorFn: (row) => row.role.compensation_hourly_dollars ?? 0,
     header: SORT_HEADER("$/hr"),
-    cell: ({ row }) =>
-      formatCompensation(row.original.role.compensation_hourly_dollars),
+    cell: ({ row }) => (
+      <TableInlineCell<string>
+        value={
+          row.original.role.compensation_hourly_dollars !== null
+            ? String(row.original.role.compensation_hourly_dollars)
+            : ""
+        }
+        display={(v) => formatCompensation(v ? Number(v) : null)}
+        renderInput={({ draft, setDraft, commit, inputRef }) => (
+          <input
+            ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+            type="number"
+            min={0}
+            max={9999}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            className={`${INPUT_CLS} w-20`}
+          />
+        )}
+        onSave={(v) =>
+          updateRoleFieldAction(row.original.id, "compensation_hourly_dollars", v)
+        }
+      />
+    ),
   },
   {
     id: "distance",
@@ -123,24 +267,87 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           ? Number.POSITIVE_INFINITY - 1
           : Number.POSITIVE_INFINITY,
     header: SORT_HEADER("Next interview"),
-    cell: ({ row }) => formatNextInterview(row.original.next_interview),
+    cell: ({ row }) => (
+      <InterviewPopover interview={row.original.next_interview} />
+    ),
   },
   {
     id: "grad_year_window",
     accessorFn: (row) => row.role.max_grad_year ?? Number.POSITIVE_INFINITY,
     header: SORT_HEADER("Grad year"),
-    cell: ({ row }) =>
-      formatGradYearWindow(
-        row.original.role.min_grad_year,
-        row.original.role.max_grad_year
-      ),
+    cell: ({ row }) => (
+      <span className="inline-flex items-center gap-1">
+        <TableInlineCell<string>
+          value={row.original.role.min_grad_year ? String(row.original.role.min_grad_year) : ""}
+          display={() =>
+            formatGradYearWindow(
+              row.original.role.min_grad_year,
+              row.original.role.max_grad_year
+            )
+          }
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <input
+              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+              type="number"
+              min={2024}
+              max={2034}
+              placeholder="min"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              className={`${INPUT_CLS} w-16`}
+            />
+          )}
+          onSave={(v) => updateRoleFieldAction(row.original.id, "min_grad_year", v)}
+        />
+        <TableInlineCell<string>
+          value={row.original.role.max_grad_year ? String(row.original.role.max_grad_year) : ""}
+          display={() => <span />}
+          renderInput={({ draft, setDraft, commit, inputRef }) => (
+            <input
+              ref={inputRef as React.MutableRefObject<HTMLInputElement>}
+              type="number"
+              min={2024}
+              max={2034}
+              placeholder="max"
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onBlur={commit}
+              className={`${INPUT_CLS} w-16`}
+            />
+          )}
+          onSave={(v) => updateRoleFieldAction(row.original.id, "max_grad_year", v)}
+        />
+      </span>
+    ),
   },
   {
     id: "relocation_assistance",
     accessorFn: (row) => row.role.relocation_assistance,
     header: SORT_HEADER("Relocation"),
     cell: ({ row }) => (
-      <RelocationAssistanceCell value={row.original.role.relocation_assistance} />
+      <TableInlineCell<string>
+        value={row.original.role.relocation_assistance ?? ""}
+        display={() => (
+          <RelocationAssistanceCell value={row.original.role.relocation_assistance} />
+        )}
+        renderInput={({ draft, setDraft, commit, inputRef }) => (
+          <select
+            ref={inputRef as React.MutableRefObject<HTMLSelectElement>}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value as RelocationAssistance | "")}
+            onBlur={commit}
+            className={INPUT_CLS}
+          >
+            <option value="">—</option>
+            <option value="provided">Provided</option>
+            <option value="not_provided">Not provided</option>
+          </select>
+        )}
+        onSave={(v) =>
+          updateRoleFieldAction(row.original.id, "relocation_assistance", v)
+        }
+      />
     ),
   },
   {

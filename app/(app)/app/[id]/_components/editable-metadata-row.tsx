@@ -49,11 +49,10 @@ export function EditableMetadataRow({
 
   return (
     <div className="grid grid-cols-1 gap-x-4 gap-y-4 rounded-md border border-border bg-card/40 p-4 sm:grid-cols-2 lg:grid-cols-3">
-      {/* Target year + season — two adjacent inline edits */}
+      {/* Target year + season — two adjacent inline edits with per-field confidence */}
       <div className="space-y-0.5">
-        <div className="flex items-center text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
-          <span>Target</span>
-          <ConfidenceBadge confidence={conf.target_year ?? conf.target_season} />
+        <div className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+          Target
         </div>
         <div className="flex items-center gap-1">
           <InlineEdit<string>
@@ -77,6 +76,7 @@ export function EditableMetadataRow({
             )}
             onSave={makeSaver(appId, "target_year")}
           />
+          <ConfidenceBadge confidence={conf.target_year} />
           <InlineEdit<TargetSeason>
             value={r.target_season}
             display={(v) => (
@@ -99,6 +99,7 @@ export function EditableMetadataRow({
             )}
             onSave={makeSaver(appId, "target_season")}
           />
+          <ConfidenceBadge confidence={conf.target_season} />
         </div>
       </div>
 
