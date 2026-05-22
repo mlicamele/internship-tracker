@@ -105,7 +105,7 @@ export function TableTextField({
   return (
     <span
       className={cn(
-        "relative inline-flex h-10 items-center gap-0.5 rounded-sm px-1 focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary",
+        "relative inline-flex h-10 items-center gap-0 rounded-sm px-0.5 focus-within:ring-2 focus-within:ring-inset focus-within:ring-primary",
         error && "ring-2 ring-inset ring-destructive",
         className
       )}
@@ -206,7 +206,7 @@ export function TableEnumField<T extends string>({
     <DropdownMenu>
       <DropdownMenuTrigger
         onClick={(e) => e.stopPropagation()}
-        className="inline-flex h-10 cursor-pointer items-center rounded-sm px-1 text-left hover:bg-muted/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
+        className="inline-flex h-10 cursor-pointer items-center rounded-sm px-0.5 text-left hover:bg-muted/40 focus:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
         disabled={pending}
       >
         {value !== null ? (
