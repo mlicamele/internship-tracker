@@ -15,7 +15,7 @@ export type RelocationAssistance = "provided" | "not_provided";
 
 export type ConfidenceTier = "high" | "medium" | "low";
 
-export type RoleSource = "paste_url" | "scrape_simplify" | "manual";
+export type RoleSource = "paste_url" | "scrape_simplify" | "manual" | "capture";
 
 export type TriageState = "draft" | "inbox" | "active" | "snoozed" | "skipped";
 
