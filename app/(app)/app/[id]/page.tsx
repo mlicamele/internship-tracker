@@ -6,6 +6,7 @@ import { listForApplication as listInterviews } from "@/lib/db/interviews";
 import { listForApplication as listStatusEvents } from "@/lib/db/status-events";
 import { get as getCompanyNote } from "@/lib/db/company_notes";
 import { EditApplicationView } from "./_components/edit-application-view";
+import { ExternalLink } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
 
@@ -45,12 +46,28 @@ export default async function ApplicationDetailPage({
           ← Pipeline
         </Link>
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold tracking-tight">
-            {application.role.company.name}
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            {application.role.title}
-          </p>
+          <div className="flex items-start justify-between gap-3">
+            <div className="space-y-1">
+              <h1 className="text-2xl font-semibold tracking-tight">
+                {application.role.company.name}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                {application.role.title}
+              </p>
+            </div>
+            {application.role.jd_url && (
+              <a
+                href={application.role.jd_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-sm font-medium hover:bg-accent"
+                title={application.role.jd_url}
+              >
+                Open posting
+                <ExternalLink className="size-3.5 opacity-70" />
+              </a>
+            )}
+          </div>
           {isDraft && (
             <p className="text-xs font-medium text-amber-500">
               Draft — review the auto-extracted fields, then click Save to add this to your pipeline.

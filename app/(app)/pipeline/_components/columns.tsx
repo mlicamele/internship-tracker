@@ -8,7 +8,7 @@ import type {
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
-import { ArrowUpDown } from "@/components/icons";
+import { ArrowUpDown, ExternalLink } from "@/components/icons";
 import { updateRoleFieldAction } from "@/app/(app)/app/[id]/actions";
 import { LocationsCell } from "./locations-cell";
 import { RevertButton } from "./revert-button";
@@ -80,11 +80,28 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     id: "company",
     accessorFn: (row) => row.role.company.name,
     header: SORT_HEADER("Company"),
-    cell: ({ row }) => (
-      <span className="block h-10 overflow-y-auto whitespace-normal break-words font-medium leading-tight">
-        {row.original.role.company.name}
-      </span>
-    ),
+    cell: ({ row }) => {
+      const jdUrl = row.original.role.jd_url;
+      const name = row.original.role.company.name;
+      return (
+        <span className="block h-10 overflow-y-auto whitespace-normal break-words font-medium leading-tight">
+          {jdUrl ? (
+            <a
+              href={jdUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group inline-flex items-baseline gap-1 hover:underline"
+              title={`Open posting: ${jdUrl}`}
+            >
+              {name}
+              <ExternalLink className="size-3 shrink-0 translate-y-0.5 opacity-60 group-hover:opacity-100" />
+            </a>
+          ) : (
+            name
+          )}
+        </span>
+      );
+    },
     enableHiding: false,
   },
   {
