@@ -43,3 +43,4 @@ next-env.d.ts
 # test harness output (regenerated on every run)
 scripts/test-output.txt
 scripts/test-capture-output.txt
+scripts/seed-simplify-output.txt
