@@ -175,6 +175,8 @@ Rules:
     * "Exceptionally high compensation" → null (no numeric value)
     * "Competitive" → null
     * Compensation not mentioned → null
+
+  PLAUSIBILITY CHECK (before outputting): a realistic internship hourly rate is $15–$100. Above ~$100 is possible only at top quant firms (Bridgewater, Citadel, Jane Street, Hudson River — cap ~$120). If your answer is >$150, you almost certainly forgot to divide an annualized or total figure. Recheck the arithmetic and rules 3–4 above. If still ambiguous, return null — a wrong number ($444, $520) is worse than a missing one.
 - confidence: be honest. Null/unspecified fields should lower overall_confidence.
 - notes: 1 short sentence for debugging.
 
@@ -315,10 +317,13 @@ export async function extractJobFromEvidence(
       )
         ? (parsed.relocation_assistance as RelocationAssistance)
         : null,
+      // Cap at $300/hr — no internship pays more; anything higher is an LLM
+      // arithmetic error (missed divide-by-2080 on annualized figures, etc.).
       compensation_hourly_dollars:
         typeof parsed.compensation_hourly_dollars === "number" &&
         Number.isFinite(parsed.compensation_hourly_dollars) &&
-        parsed.compensation_hourly_dollars > 0
+        parsed.compensation_hourly_dollars > 0 &&
+        parsed.compensation_hourly_dollars <= 300
           ? Math.round(parsed.compensation_hourly_dollars)
           : null,
       confidences: parseConfidencesMap(parsed.confidences),
