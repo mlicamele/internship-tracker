@@ -114,7 +114,7 @@ export interface Role {
   /** Hourly rate in whole dollars (e.g. 50 for $50/hr). Null if unknown or non-numeric comp. */
   compensation_hourly_dollars: number | null;
   // Added in migration 0013
-  /** Semantic tags drawn from lib/taxonomy.ts INTEREST_TAGS. LLM emits 0-4; used for interest-fit and pipeline filtering. */
+  /** Semantic tags drawn from lib/taxonomy.ts INTEREST_TAGS. LLM emits 1-3 (typical 1-2); used for interest-fit and pipeline filtering. */
   tags: string[];
   created_at: string;
 }

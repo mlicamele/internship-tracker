@@ -34,7 +34,7 @@ export interface ExtractedJob {
   relocation_assistance: RelocationAssistance | null;
   /** Hourly rate in whole dollars (e.g. 50 for $50/hr). Null if not stated or non-numeric. */
   compensation_hourly_dollars: number | null;
-  /** 0-4 semantic tags drawn from lib/taxonomy.ts INTEREST_TAGS. Filtered to valid values before returning. */
+  /** 1-3 semantic tags drawn from lib/taxonomy.ts INTEREST_TAGS. Filtered to valid values before returning. */
   tags: string[];
   /** Per-field confidence tier. Keys mirror the field names. Missing keys = no signal. */
   confidences: Record<string, ConfidenceTier>;
