@@ -182,26 +182,25 @@ Rules:
     * Compensation not mentioned → null
 
   PLAUSIBILITY CHECK (before outputting): a realistic internship hourly rate is $15–$100. Above ~$100 is possible only at top quant firms (Bridgewater, Citadel, Jane Street, Hudson River — cap ~$120). If your answer is >$150, you almost certainly forgot to divide an annualized or total figure. Recheck the arithmetic and rules 3–4 above. If still ambiguous, return null — a wrong number ($444, $520) is worse than a missing one.
-- tags: 0-4 semantic tags describing what THIS role IS ABOUT. Drawn ONLY from the closed VOCABULARY below. Empty [] if nothing fits — better than wrong.
+- tags: 1-3 semantic tags describing what THIS role IS ABOUT. Typical answer is 1-2; ONE tag is often correct. Drawn ONLY from the closed VOCABULARY below. Do not pad.
 
   VOCABULARY (only these strings are valid; anything else is dropped):
   ${INTEREST_TAGS.join(", ")}
 
   RULES:
-    * Prefer SPECIFIC over GENERIC. If "Computer Vision" applies, do NOT also add "ML/AI"; if "Web/Frontend" applies, do NOT also add "SWE". Specific implies the generic.
-    * Include an INDUSTRY tag when the company's domain is a strong theme of the role (Recursion → "Biotech", Riot Games → "Gaming", Anduril → "Defense/Aerospace"). Skip industry when not central — most big-tech backend roles don't need one.
-    * Include a ROLE-TYPE tag (SWE / Web/Frontend / Quant / ML/AI / …) that best matches the day-to-day work.
-    * "SWE" is the generic catch-all — use it ONLY when no more-specific engineering tag applies.
-    * "Crypto" = blockchain / cryptocurrency. "Cryptography" = math / applied cryptography (Signal, security teams). Different tags, don't confuse.
-    * Cap at 4. Fewer is usually better (2-3 typical).
-    * Do NOT invent tags. Anything not exactly matching the vocabulary is silently dropped.
+    * One ROLE-TYPE tag (SWE / Web/Frontend / Quant / ML/AI / Full-Stack / …) is usually enough. Only add more if the role clearly spans domains.
+    * Prefer SPECIFIC over GENERIC. If "Computer Vision" applies, do NOT also add "ML/AI"; "Web/Frontend" alone beats "SWE" + "Web/Frontend".
+    * Add ONE INDUSTRY tag only when the company's domain is a strong, defining theme (Recursion → "Biotech", Anduril → "Defense/Aerospace", any hedge fund + Quant role → "Fintech"). Skip industry when not central.
+    * "SWE" is the generic catch-all — use ONLY when no more-specific engineering tag applies.
+    * "Crypto" = blockchain. "Cryptography" = math / applied cryptography. Different tags.
+    * Cap at 3. Do NOT invent tags.
 
   Examples:
-    * "SWE Intern - Backend, Snowflake" → ["Backend/Systems", "Databases"]
+    * "SWE Intern - Backend, Snowflake" → ["Backend/Systems"]
     * "Perception Engineer Intern - Zoox" → ["Computer Vision", "Robotics"]
-    * "Quantitative Trader Intern - Citadel Securities" → ["Quant", "Algorithmic Trading"]
+    * "Quantitative Trader Intern - Citadel" → ["Quant", "Fintech"]
     * "Full-Stack Engineer Intern - Recursion Pharmaceuticals" → ["Full-Stack", "Biotech"]
-    * "SWE Intern - generic big-tech backend role" → ["Backend/Systems"]
+    * "SWE Intern - Apple" → ["SWE"]
 - confidence: be honest. Null/unspecified fields should lower overall_confidence.
 - notes: 1 short sentence for debugging.
 
@@ -401,14 +400,14 @@ function filterConfidencesToPopulated(
   return out;
 }
 
-/** Filter LLM-emitted tags to the closed vocabulary; drop unknowns, dedupe, cap at 4. */
+/** Filter LLM-emitted tags to the closed vocabulary; drop unknowns, dedupe, cap at 3. */
 function parseTags(v: unknown): string[] {
   if (!Array.isArray(v)) return [];
   const strings: string[] = [];
   for (const item of v) {
     if (typeof item === "string" && item.trim()) strings.push(item.trim());
   }
-  return normalizeTags(strings).slice(0, 4);
+  return normalizeTags(strings).slice(0, 3);
 }
 
 function parseLocations(v: unknown): ExtractedJob["locations"] {
@@ -477,7 +476,7 @@ function parseConfidencesMap(v: unknown): Record<string, ConfidenceTier> {
 // scoped to a single field for token efficiency.
 // ============================================================
 
-const TAGS_SYSTEM_PROMPT = `You classify an internship posting with 0-4 semantic tags from a closed vocabulary.
+const TAGS_SYSTEM_PROMPT = `You classify an internship posting with 1-3 semantic tags from a closed vocabulary. Typical answer is 1-2 tags; ONE tag is often correct. Do not pad.
 
 OUTPUT STRICT JSON ONLY: {"tags": string[]}
 
@@ -485,20 +484,25 @@ VOCABULARY (only these strings are valid; anything else is dropped):
 ${INTEREST_TAGS.join(", ")}
 
 RULES:
-- Prefer SPECIFIC over GENERIC. If "Computer Vision" applies, do NOT also add "ML/AI"; if "Web/Frontend" applies, do NOT also add "SWE".
-- Include an INDUSTRY tag when the company's domain is a strong theme (Recursion → "Biotech", Riot Games → "Gaming", Anduril → "Defense/Aerospace"). Skip industry when not central.
-- Include a ROLE-TYPE tag (SWE / Web/Frontend / Quant / ML/AI / …) matching the day-to-day work.
+- One ROLE-TYPE tag (SWE / Web/Frontend / Quant / ML/AI / Full-Stack / …) is usually enough. Only add more if the role clearly spans domains.
+- Prefer SPECIFIC over GENERIC. If "Computer Vision" applies, do NOT also add "ML/AI"; "Web/Frontend" alone beats "SWE" + "Web/Frontend".
+- Add ONE INDUSTRY tag only when the company's domain is a strong, defining theme (Recursion → "Biotech", Anduril → "Defense/Aerospace", any hedge fund + Quant role → "Fintech"). Skip industry when not central — most big-tech roles don't need one.
 - "SWE" is the generic catch-all — use ONLY when no more-specific engineering tag applies.
-- "Crypto" = blockchain / cryptocurrency. "Cryptography" = math / applied cryptography. Different tags.
-- Cap at 4. Fewer is usually better (2-3 typical). Empty [] if nothing fits.
-- Do NOT invent tags.
+- "Crypto" = blockchain. "Cryptography" = math / applied cryptography. Different tags.
+- Cap at 3. Do NOT invent tags.
+
+TITLE + COMPANY IS ENOUGH SIGNAL. If the title is clearly a Quant / SWE / ML / Full-Stack / etc. role, TAG IT even when the body is thin, missing, or off-topic (e.g. the JD body is a careers-index page listing other roles). A hedge fund + "Quantitative Developer" is ["Quant", "Fintech"]. Do NOT return [] just because the body is weak or off-topic. Empty [] is only correct when neither the title nor the company gives ANY signal.
 
 Examples:
-- "SWE Intern - Backend, Snowflake" → ["Backend/Systems", "Databases"]
+- "SWE Intern - Backend, Snowflake" → ["Backend/Systems"]
 - "Perception Engineer Intern - Zoox" → ["Computer Vision", "Robotics"]
-- "Quantitative Trader Intern - Citadel Securities" → ["Quant", "Algorithmic Trading"]
+- "Quantitative Trader Intern - Citadel Securities" → ["Quant", "Fintech"]
+- "Quantitative Developer Intern - Cubist" → ["Quant", "Fintech"]
+- "SWE Intern - Citadel" → ["SWE", "Fintech"]
+- "LLM Post-training Engineer - TikTok" → ["LLMs"]
 - "Full-Stack Engineer Intern - Recursion Pharmaceuticals" → ["Full-Stack", "Biotech"]
-- "SWE Intern - generic big-tech backend role" → ["Backend/Systems"]`;
+- "SWE Intern - Apple" → ["SWE"]
+- "Firmware Intern - Etched" → ["Embedded Systems"]`;
 
 export interface ClassifyRoleTagsInput {
   company: string | null;
