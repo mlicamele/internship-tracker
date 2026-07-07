@@ -19,10 +19,10 @@ A small Cloudflare Worker that exposes a headless browser rendering endpoint. Th
 5. **Deploy the Worker**:
    ```bash
    cd cloudflare-worker
-   npm install @cloudflare/puppeteer
+   npm install
    wrangler deploy
    ```
-   Note the Worker URL printed (e.g. `https://internship-render.YOURNAME.workers.dev`).
+   `npm install` uses this directory's local `package.json` (not the root Next.js one — puppeteer is a Worker-only dep and doesn't belong in the app bundle). Note the Worker URL printed (e.g. `https://internship-render.YOURNAME.workers.dev`).
 
 6. **Generate a shared secret** — any random string ~32 characters. On macOS:
    ```bash

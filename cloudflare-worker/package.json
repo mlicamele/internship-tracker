@@ -1,0 +1,9 @@
+{
+  "name": "internship-render",
+  "private": true,
+  "version": "0.0.0",
+  "description": "Cloudflare Worker for headless rendering — 4th-layer scrape fallback for the main InternshipTracker app.",
+  "dependencies": {
+    "@cloudflare/puppeteer": "^1.1.0"
+  }
+}
