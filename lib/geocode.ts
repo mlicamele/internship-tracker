@@ -27,10 +27,27 @@ async function throttle() {
   lastRequestAt = Date.now();
 }
 
+/**
+ * Terms that should NEVER be geocoded because they describe a *work mode*,
+ * not a place. Without this, Nominatim happily maps "Remote" → Remote, OR
+ * (pop. ~1 in Coos County), and distance sort gets meaningless.
+ */
+const VIRTUAL_LOCATION_TERMS = new Set([
+  "remote",
+  "anywhere",
+  "distributed",
+  "virtual",
+  "us remote",
+  "usa remote",
+  "remote (us)",
+  "remote us",
+]);
+
 /** Geocode a free-form address string. Returns null if no match. */
 export async function geocode(address: string): Promise<LatLng | null> {
   const key = address.trim().toLowerCase();
   if (!key) return null;
+  if (VIRTUAL_LOCATION_TERMS.has(key)) return null;
   if (cache.has(key)) return cache.get(key) ?? null;
 
   const userAgent = process.env.NOMINATIM_USER_AGENT;
