@@ -145,19 +145,24 @@ async function geocodeLocations(
   return out;
 }
 
-/** Have the visible fields drifted enough to bother writing? */
+/**
+ * Have the visible fields drifted enough to bother writing?
+ *
+ * Only compares title. Locations are intentionally excluded because
+ * upstream texts (e.g. "San Francisco, CA") often differ from what the
+ * scrape/LLM extracted at role-creation time (e.g. "San Francisco,
+ * California, United States") *even though they refer to the same place*.
+ * Blindly overwriting on refresh would wipe the geocoded lat/lng that
+ * powers distance sort, since a text-mismatch means we can't map old
+ * coords to new text. So we leave locations alone and trust the initial
+ * extraction; user can edit manually if a role's location genuinely
+ * changes.
+ */
 function shouldRefresh(
   existing: { title: string; locations: RoleLocation[] },
   row: SimplifyRow
 ): boolean {
-  if (existing.title !== row.title) return true;
-  const existingTexts = existing.locations.map((l) => l.text).sort();
-  const upstreamTexts = [...row.locations].sort();
-  if (existingTexts.length !== upstreamTexts.length) return true;
-  for (let i = 0; i < existingTexts.length; i++) {
-    if (existingTexts[i] !== upstreamTexts[i]) return true;
-  }
-  return false;
+  return existing.title !== row.title;
 }
 
 /** Chunk an array into groups of `n`. */
@@ -229,15 +234,9 @@ export async function ingestSimplifyListings(
       continue;
     }
     try {
-      // Locations may have gained coords elsewhere; on refresh we don't
-      // re-geocode (upstream texts + lat/lng preserved when possible).
-      const locations = row.locations.map((text) => {
-        const prior = existing.locations.find((l) => l.text === text);
-        return prior ? prior : { text, lat: null, lng: null };
-      });
+      // Refresh title only — never locations (see shouldRefresh comment).
       await updateRole(supabase, existing.id, {
         title: row.title,
-        locations,
       });
       summary.updated_roles++;
     } catch (err) {
