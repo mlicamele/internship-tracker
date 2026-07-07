@@ -59,9 +59,9 @@ export const STATUS_OPTIONS = (Object.keys(STATUS_LABEL) as ApplicationStatus[])
 );
 
 const SEASON_SHORT: Record<TargetSeason, string> = {
-  summer: "S",
-  fall: "F",
-  winter: "W",
+  summer: "Su",
+  fall: "Fa",
+  winter: "Wi",
   spring: "Sp",
 };
 
