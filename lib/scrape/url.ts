@@ -54,6 +54,7 @@ function emptyResult(url: string): ScrapeResult {
     max_grad_year: null,
     relocation_assistance: null,
     compensation_hourly_dollars: null,
+    tags: [],
     confidences: {},
     overall_confidence: 0,
     notes: "no evidence gathered",

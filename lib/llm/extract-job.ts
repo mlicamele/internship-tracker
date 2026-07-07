@@ -13,6 +13,7 @@ import type {
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
+import { INTEREST_TAGS, normalizeTags } from "@/lib/taxonomy";
 
 export interface ExtractedJob {
   company: string | null;
@@ -33,6 +34,8 @@ export interface ExtractedJob {
   relocation_assistance: RelocationAssistance | null;
   /** Hourly rate in whole dollars (e.g. 50 for $50/hr). Null if not stated or non-numeric. */
   compensation_hourly_dollars: number | null;
+  /** 0-4 semantic tags drawn from lib/taxonomy.ts INTEREST_TAGS. Filtered to valid values before returning. */
+  tags: string[];
   /** Per-field confidence tier. Keys mirror the field names. Missing keys = no signal. */
   confidences: Record<string, ConfidenceTier>;
   overall_confidence: number;
@@ -54,6 +57,7 @@ const SAFE_DEFAULT: ExtractedJob = {
   max_grad_year: null,
   relocation_assistance: null,
   compensation_hourly_dollars: null,
+  tags: [],
   confidences: {},
   overall_confidence: 0,
   notes: "extraction failed",
@@ -83,6 +87,7 @@ OUTPUT STRICT JSON ONLY — no markdown, no prose, no code fence. Match this exa
   "max_grad_year": integer | null,         // LATEST grad year still eligible; null if no upper bound stated
   "relocation_assistance": "provided" | "not_provided" | null,
   "compensation_hourly_dollars": integer | null,
+  "tags": string[],                        // 0-4 tags from the fixed VOCABULARY below. Empty [] if nothing fits.
   "confidences": {                         // per-field "high" | "medium" | "low". Omit a key entirely if no signal.
     "company": "high"|"medium"|"low",
     "title": "high"|"medium"|"low",
@@ -177,6 +182,26 @@ Rules:
     * Compensation not mentioned → null
 
   PLAUSIBILITY CHECK (before outputting): a realistic internship hourly rate is $15–$100. Above ~$100 is possible only at top quant firms (Bridgewater, Citadel, Jane Street, Hudson River — cap ~$120). If your answer is >$150, you almost certainly forgot to divide an annualized or total figure. Recheck the arithmetic and rules 3–4 above. If still ambiguous, return null — a wrong number ($444, $520) is worse than a missing one.
+- tags: 0-4 semantic tags describing what THIS role IS ABOUT. Drawn ONLY from the closed VOCABULARY below. Empty [] if nothing fits — better than wrong.
+
+  VOCABULARY (only these strings are valid; anything else is dropped):
+  ${INTEREST_TAGS.join(", ")}
+
+  RULES:
+    * Prefer SPECIFIC over GENERIC. If "Computer Vision" applies, do NOT also add "ML/AI"; if "Web/Frontend" applies, do NOT also add "SWE". Specific implies the generic.
+    * Include an INDUSTRY tag when the company's domain is a strong theme of the role (Recursion → "Biotech", Riot Games → "Gaming", Anduril → "Defense/Aerospace"). Skip industry when not central — most big-tech backend roles don't need one.
+    * Include a ROLE-TYPE tag (SWE / Web/Frontend / Quant / ML/AI / …) that best matches the day-to-day work.
+    * "SWE" is the generic catch-all — use it ONLY when no more-specific engineering tag applies.
+    * "Crypto" = blockchain / cryptocurrency. "Cryptography" = math / applied cryptography (Signal, security teams). Different tags, don't confuse.
+    * Cap at 4. Fewer is usually better (2-3 typical).
+    * Do NOT invent tags. Anything not exactly matching the vocabulary is silently dropped.
+
+  Examples:
+    * "SWE Intern - Backend, Snowflake" → ["Backend/Systems", "Databases"]
+    * "Perception Engineer Intern - Zoox" → ["Computer Vision", "Robotics"]
+    * "Quantitative Trader Intern - Citadel Securities" → ["Quant", "Algorithmic Trading"]
+    * "Full-Stack Engineer Intern - Recursion Pharmaceuticals" → ["Full-Stack", "Biotech"]
+    * "SWE Intern - generic big-tech backend role" → ["Backend/Systems"]
 - confidence: be honest. Null/unspecified fields should lower overall_confidence.
 - notes: 1 short sentence for debugging.
 
@@ -326,6 +351,7 @@ export async function extractJobFromEvidence(
         parsed.compensation_hourly_dollars <= 300
           ? Math.round(parsed.compensation_hourly_dollars)
           : null,
+      tags: parseTags(parsed.tags),
       confidences: parseConfidencesMap(parsed.confidences),
       overall_confidence: parseConfidence(parsed.overall_confidence),
       notes: typeof parsed.notes === "string" ? parsed.notes : "",
@@ -366,12 +392,23 @@ function filterConfidencesToPopulated(
     max_grad_year: r.max_grad_year !== null,
     relocation_assistance: r.relocation_assistance !== null,
     compensation_hourly_dollars: r.compensation_hourly_dollars !== null,
+    tags: r.tags.length > 0,
   };
   const out: Record<string, ConfidenceTier> = {};
   for (const [k, v] of Object.entries(r.confidences)) {
     if (populated[k]) out[k] = v;
   }
   return out;
+}
+
+/** Filter LLM-emitted tags to the closed vocabulary; drop unknowns, dedupe, cap at 4. */
+function parseTags(v: unknown): string[] {
+  if (!Array.isArray(v)) return [];
+  const strings: string[] = [];
+  for (const item of v) {
+    if (typeof item === "string" && item.trim()) strings.push(item.trim());
+  }
+  return normalizeTags(strings).slice(0, 4);
 }
 
 function parseLocations(v: unknown): ExtractedJob["locations"] {
@@ -432,4 +469,71 @@ function parseConfidencesMap(v: unknown): Record<string, ConfidenceTier> {
     }
   }
   return out;
+}
+
+// ============================================================
+// Tag-only classifier — used by the backfill script to tag existing
+// roles cheaply. Reuses the vocabulary/rules from SYSTEM_PROMPT but
+// scoped to a single field for token efficiency.
+// ============================================================
+
+const TAGS_SYSTEM_PROMPT = `You classify an internship posting with 0-4 semantic tags from a closed vocabulary.
+
+OUTPUT STRICT JSON ONLY: {"tags": string[]}
+
+VOCABULARY (only these strings are valid; anything else is dropped):
+${INTEREST_TAGS.join(", ")}
+
+RULES:
+- Prefer SPECIFIC over GENERIC. If "Computer Vision" applies, do NOT also add "ML/AI"; if "Web/Frontend" applies, do NOT also add "SWE".
+- Include an INDUSTRY tag when the company's domain is a strong theme (Recursion → "Biotech", Riot Games → "Gaming", Anduril → "Defense/Aerospace"). Skip industry when not central.
+- Include a ROLE-TYPE tag (SWE / Web/Frontend / Quant / ML/AI / …) matching the day-to-day work.
+- "SWE" is the generic catch-all — use ONLY when no more-specific engineering tag applies.
+- "Crypto" = blockchain / cryptocurrency. "Cryptography" = math / applied cryptography. Different tags.
+- Cap at 4. Fewer is usually better (2-3 typical). Empty [] if nothing fits.
+- Do NOT invent tags.
+
+Examples:
+- "SWE Intern - Backend, Snowflake" → ["Backend/Systems", "Databases"]
+- "Perception Engineer Intern - Zoox" → ["Computer Vision", "Robotics"]
+- "Quantitative Trader Intern - Citadel Securities" → ["Quant", "Algorithmic Trading"]
+- "Full-Stack Engineer Intern - Recursion Pharmaceuticals" → ["Full-Stack", "Biotech"]
+- "SWE Intern - generic big-tech backend role" → ["Backend/Systems"]`;
+
+export interface ClassifyRoleTagsInput {
+  company: string | null;
+  title: string;
+  body: string;
+}
+
+/** Classify an existing role by title + body only. Returns [] on error. Never throws. */
+export async function classifyRoleTags(
+  input: ClassifyRoleTagsInput
+): Promise<string[]> {
+  const parts: string[] = [];
+  if (input.company) parts.push(`Company: ${input.company}`);
+  parts.push(`Title: ${input.title}`);
+  if (input.body) parts.push(`\nJD body:\n${input.body.slice(0, MAX_BODY_CHARS)}`);
+  const user = parts.join("\n");
+
+  try {
+    const completion = await client().chat.completions.create({
+      model: MODEL,
+      messages: [
+        { role: "system", content: TAGS_SYSTEM_PROMPT },
+        { role: "user", content: user },
+      ],
+      temperature: 0,
+      max_tokens: 200,
+      response_format: { type: "json_object" },
+    });
+    const text = completion.choices[0]?.message?.content;
+    if (!text) return [];
+    const match = text.match(/\{[\s\S]*\}/);
+    if (!match) return [];
+    const parsed = JSON.parse(match[0]) as Record<string, unknown>;
+    return parseTags(parsed.tags);
+  } catch {
+    return [];
+  }
 }

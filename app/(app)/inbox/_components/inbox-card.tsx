@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useTransition } from "react";
 import { Button } from "@/components/ui/button";
+import { ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import {
   RelocationAssistanceCell,
@@ -51,16 +52,30 @@ export function InboxCard({ row }: { row: PipelineRow }) {
         pending && "opacity-50 pointer-events-none"
       )}
     >
-      {/* Header: company + role title — clickable to detail */}
-      <Link
-        href={`/app/${row.id}`}
-        className="block space-y-1 rounded-sm -mx-1 px-1 py-0.5 hover:bg-muted/40 focus-visible:bg-muted/40 focus:outline-none"
-      >
-        <h2 className="text-base font-semibold tracking-tight">
-          {r.company.name}
-        </h2>
-        <p className="text-sm text-muted-foreground">{r.title}</p>
-      </Link>
+      {/* Header: company + role title — clickable to detail, with separate open-posting anchor */}
+      <div className="flex items-start gap-2">
+        <Link
+          href={`/app/${row.id}`}
+          className="flex-1 min-w-0 block space-y-1 rounded-sm -mx-1 px-1 py-0.5 hover:bg-muted/40 focus-visible:bg-muted/40 focus:outline-none"
+        >
+          <h2 className="text-base font-semibold tracking-tight">
+            {r.company.name}
+          </h2>
+          <p className="text-sm text-muted-foreground">{r.title}</p>
+        </Link>
+        {r.jd_url && (
+          <a
+            href={r.jd_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={`Open posting: ${r.jd_url}`}
+            className="shrink-0 inline-flex items-center gap-1 rounded-sm px-2 py-1 text-xs font-medium text-muted-foreground hover:bg-muted/40 hover:text-foreground focus-visible:bg-muted/40 focus:outline-none"
+          >
+            <ExternalLink className="size-3.5" />
+            <span>Posting</span>
+          </a>
+        )}
+      </div>
 
       {/* Key facts grid */}
       <div className="grid grid-cols-2 gap-x-3 gap-y-2 sm:grid-cols-3 md:grid-cols-4">

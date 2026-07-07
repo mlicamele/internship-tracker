@@ -357,6 +357,7 @@ export async function ingestSimplifyListings(
               relocation_assistance: extracted.relocation_assistance,
               compensation_hourly_dollars:
                 extracted.compensation_hourly_dollars,
+              tags: extracted.tags,
             },
             confidences: snapshotConfidences,
           };
@@ -387,6 +388,7 @@ export async function ingestSimplifyListings(
             minGradYear: extracted.min_grad_year,
             maxGradYear: extracted.max_grad_year,
             relocationAssistance: extracted.relocation_assistance,
+            tags: extracted.tags,
             extractionConfidences: snapshotConfidences,
             extractionSnapshot,
             source: "scrape_simplify",

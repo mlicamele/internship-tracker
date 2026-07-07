@@ -29,6 +29,7 @@ export interface CreateRoleInput {
   targetSeason?: TargetSeason;
   workModel?: WorkModel | null;
   compensationHourlyDollars?: number | null;
+  tags?: string[];
   extractionConfidences?: Record<string, ConfidenceTier>;
   extractionSnapshot?: ExtractionSnapshot;
 }
@@ -61,6 +62,7 @@ export async function create(
       target_season: input.targetSeason ?? ROLE_INSERT_DEFAULTS.target_season,
       work_model: input.workModel ?? null,
       compensation_hourly_dollars: input.compensationHourlyDollars ?? null,
+      tags: input.tags ?? [],
       extraction_confidences: input.extractionConfidences ?? {},
       extraction_snapshot:
         input.extractionSnapshot ?? { values: {}, confidences: {} },
@@ -85,6 +87,7 @@ export type RoleUpdate = Partial<{
   target_season: TargetSeason;
   work_model: WorkModel | null;
   compensation_hourly_dollars: number | null;
+  tags: string[];
   extraction_confidences: Record<string, ConfidenceTier>;
 }>;
 

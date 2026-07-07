@@ -131,6 +131,7 @@ export async function createApplicationFromUrl(
           max_grad_year: extracted.max_grad_year,
           relocation_assistance: extracted.relocation_assistance,
           compensation_hourly_dollars: extracted.compensation_hourly_dollars,
+          tags: extracted.tags,
         },
         confidences: extracted.confidences,
       }
@@ -151,6 +152,7 @@ export async function createApplicationFromUrl(
     minGradYear: extracted?.min_grad_year ?? null,
     maxGradYear: extracted?.max_grad_year ?? null,
     relocationAssistance: extracted?.relocation_assistance ?? null,
+    tags: extracted?.tags ?? [],
     extractionConfidences: extracted?.confidences ?? {},
     extractionSnapshot,
     source: input.source,
