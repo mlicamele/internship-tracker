@@ -12,12 +12,12 @@
 // Function is pure — no DB, no side effects. Call from role-create paths and
 // batch-recompute after profile edits. Unit tests live in fit.test.ts.
 //
-// PLANNED (deferred, likely Phase 3B): a fourth component — RESUME fit —
-// scoring how well the role's JD aligns with the user's resume bullets.
-// Depends on the resume upload / pdf-parse work (Phase 6-A). When it lands,
-// rebalance the weight tuple: e.g. 0.4 class-year / 0.25 distance / 0.15
-// interest / 0.20 resume. Anything that consumes FIT_WEIGHTS or FitComponents
-// should tolerate that extension — extend types + weights together.
+// RELATED (deferred, likely Phase 3B): a distinct "resume fit" metric — how
+// well the user's resume matches the role's stated requirements. That's a
+// SEPARATE axis from this score: fit = how much the user wants the role,
+// resume-fit = how much the role wants the user. Both surface side-by-side
+// in the UI, not combined into a single weighted total. Depends on the
+// resume upload / pdf-parse work (Phase 6-A).
 
 import { weightedNearestDistance } from "@/lib/distance";
 import type { Profile, Role } from "@/lib/db/types";
