@@ -7,9 +7,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { findOrCreate as findOrCreateCompany } from "@/lib/db/companies";
 import { create as createRole } from "@/lib/db/roles";
 import { createApplication } from "@/lib/db/applications";
+import { getProfile } from "@/lib/db/profile";
 import { scrapeUrl, type ScrapeResult } from "@/lib/scrape/url";
 import { extractJobFromEvidence } from "@/lib/llm/extract-job";
 import { geocode } from "@/lib/geocode";
+import { computeFitScore } from "@/lib/scoring/fit";
 import type {
   RoleLocation,
   RoleSource,
@@ -158,11 +160,15 @@ export async function createApplicationFromUrl(
     source: input.source,
   });
 
+  const profile = await getProfile(supabase, userId);
+  const fitScore = profile ? computeFitScore(role, profile).total : undefined;
+
   const application = await createApplication(supabase, {
     userId,
     roleId: role.id,
     notes: input.notes ?? "",
     triageState: input.triageState,
+    fitScore,
   });
 
   return {

@@ -22,10 +22,12 @@
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { findOrCreate as findOrCreateCompany } from "@/lib/db/companies";
-import { create as createRole, updateRole } from "@/lib/db/roles";
+import { create as createRole, updateRole, getById as getRoleById } from "@/lib/db/roles";
 import { createApplication } from "@/lib/db/applications";
+import { getProfile } from "@/lib/db/profile";
 import { scrapeUrl } from "@/lib/scrape/url";
 import { geocode } from "@/lib/geocode";
+import { computeFitScore } from "@/lib/scoring/fit";
 import type { RoleLocation } from "@/lib/db/types";
 import { fetchSimplifySummerListings, type SimplifyRow } from "./fetch";
 
@@ -199,6 +201,11 @@ export async function ingestSimplifyListings(
     fetch_warnings: [],
   };
 
+  // Fetch profile once for fit-score computation across all app-creates this
+  // run. Null profile → we skip fit-score persistence and rows land with
+  // fit_score=null; the next profile-save action recomputes them.
+  const scoringProfile = await getProfile(supabase, userId);
+
   const fetchResult = await fetchSimplifySummerListings(opts.overrideUrl);
   summary.fetched = fetchResult.fetched;
   summary.filtered_out = fetchResult.filtered_out;
@@ -275,10 +282,21 @@ export async function ingestSimplifyListings(
       continue;
     }
     try {
+      // Fetch full role for fit-score compute — the `existing` shape only
+      // carries id/title/locations. Rare path (reappearing catalog row for a
+      // user without an application to it yet).
+      let fitScore: number | undefined;
+      if (scoringProfile) {
+        const fullRole = await getRoleById(supabase, existing.id);
+        if (fullRole) {
+          fitScore = computeFitScore(fullRole, scoringProfile).total;
+        }
+      }
       await createApplication(supabase, {
         userId,
         roleId: existing.id,
         triageState: "inbox",
+        fitScore,
       });
       summary.new_applications++;
     } catch (err) {
@@ -398,10 +416,14 @@ export async function ingestSimplifyListings(
           summary.new_roles++;
 
           try {
+            const fitScore = scoringProfile
+              ? computeFitScore(role, scoringProfile).total
+              : undefined;
             await createApplication(supabase, {
               userId,
               roleId: role.id,
               triageState: "inbox",
+              fitScore,
             });
             summary.new_applications++;
           } catch (appErr) {

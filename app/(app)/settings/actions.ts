@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { updateProfile, type ProfileUpdate } from "@/lib/db/profile";
+import { recomputeFitScoresForUser } from "@/lib/db/applications";
 import { geocode } from "@/lib/geocode";
 import { isInterestTag } from "@/lib/taxonomy";
 import type { RelocationTolerance } from "@/lib/db/types";
@@ -84,7 +85,14 @@ export async function saveSettings(formData: FormData) {
 
   await updateProfile(supabase, user.id, patch);
 
-  // Phase 3 will plug in: await recomputeFitScores(supabase, user.id);
+  // Any of grad_year / home coords / radius / tolerance / interest_tags
+  // feeds into computeFitScore, so rescore every scored application in
+  // one batch. Failures shouldn't block a settings save — swallow + log.
+  try {
+    await recomputeFitScoresForUser(supabase, user.id);
+  } catch (err) {
+    console.error("recomputeFitScoresForUser failed:", err);
+  }
 
   revalidatePath("/settings");
   revalidatePath("/inbox");

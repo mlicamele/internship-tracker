@@ -8,6 +8,7 @@ import {
   updateProfile,
   type ProfileUpdate,
 } from "@/lib/db/profile";
+import { recomputeFitScoresForUser } from "@/lib/db/applications";
 import { geocode } from "@/lib/geocode";
 import { isInterestTag } from "@/lib/taxonomy";
 import type { RelocationTolerance } from "@/lib/db/types";
@@ -117,6 +118,16 @@ export async function saveInterests(formData: FormData) {
 export async function finishOnboarding() {
   const { supabase, userId } = await requireUserId();
   await completeOnboarding(supabase, userId);
+
+  // One-shot rescore covers the case where the user pasted URLs before
+  // completing onboarding — those applications land with fit_score=null
+  // and get their real score here now that the profile is fully populated.
+  try {
+    await recomputeFitScoresForUser(supabase, userId);
+  } catch (err) {
+    console.error("recomputeFitScoresForUser (onboarding) failed:", err);
+  }
+
   revalidatePath("/inbox");
   redirect("/inbox");
 }

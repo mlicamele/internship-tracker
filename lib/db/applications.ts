@@ -9,6 +9,8 @@ import type {
   Role,
   TriageState,
 } from "./types";
+import { getProfile } from "./profile";
+import { computeFitScore } from "../scoring/fit";
 
 /** Application joined with its role + company + interviews for list views. */
 export interface ApplicationRow extends Application {
@@ -233,10 +235,36 @@ export async function hardDelete(
   if (error) throw error;
 }
 
-/** Phase 3 plugs in real scoring. Stub returns void. */
-export async function recomputeFitScores(
-  _supabase: SupabaseClient,
-  _userId: string
-): Promise<void> {
-  // No-op until Phase 3 Track 3-A.
+/**
+ * Recompute fit_score for every one of the user's applications in a
+ * scored triage state. Called from the profile-save action so a change
+ * to grad_year / home coords / interest_tags rescores the inbox
+ * immediately. Skipped applications (soft-deleted) intentionally not
+ * rescored — dead rows.
+ */
+export async function recomputeFitScoresForUser(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<{ updated: number }> {
+  const profile = await getProfile(supabase, userId);
+  if (!profile) return { updated: 0 };
+
+  const { data, error } = await supabase
+    .from("applications")
+    .select("id, role:roles(*)")
+    .eq("user_id", userId)
+    .in("triage_state", ["inbox", "active", "snoozed"]);
+  if (error) throw error;
+
+  const rows = (data ?? []) as unknown as { id: string; role: Role }[];
+  await Promise.all(
+    rows.map((r) => {
+      const total = computeFitScore(r.role, profile).total;
+      return supabase
+        .from("applications")
+        .update({ fit_score: total })
+        .eq("id", r.id);
+    })
+  );
+  return { updated: rows.length };
 }
