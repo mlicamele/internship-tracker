@@ -14,13 +14,13 @@ type WeightKey = "classYear" | "distance" | "interest";
 type Weights = Record<WeightKey, number>;
 
 /**
- * Three linked sliders for tuning the fit-score weights. The sliders always
- * sum to 100 — dragging one redistributes the remaining budget across the
- * other two in proportion to their current values. Because slider positions
- * are themselves percentages, no separate "effective %" label is needed.
+ * Three independent sliders (1-100 each) for tuning the fit-score weights.
+ * Raw slider values are stored as-is; fit scoring normalizes them at compute
+ * time (see `weightsFromProfile` in lib/scoring/fit.ts). The readout beside
+ * each slider shows the current normalized share (rounded %), not the raw
+ * value — so a user who slams all three to 100 sees "33%" on each.
  *
- * Presets are pre-normalized to sum-100 (see FIT_WEIGHT_PRESETS). Emits three
- * hidden inputs so the parent server-action form picks them up.
+ * Emits three hidden inputs so the parent server-action form picks them up.
  */
 const BALANCED_DEFAULT: Weights = { classYear: 50, distance: 30, interest: 20 };
 
@@ -34,7 +34,7 @@ export function FitWeightsControls({
   initialInterest: number | null | undefined;
 }) {
   const [weights, setWeights] = useState<Weights>(() =>
-    normalizeToHundred({
+    loadInitialWeights({
       classYear: initialClassYear,
       distance: initialDistance,
       interest: initialInterest,
@@ -42,8 +42,13 @@ export function FitWeightsControls({
   );
 
   function updateWeight(key: WeightKey, newValue: number) {
-    setWeights((current) => redistribute(current, key, newValue));
+    const clamped = Math.max(1, Math.min(100, Math.round(newValue)));
+    setWeights((current) => ({ ...current, [key]: clamped }));
   }
+
+  const totalSum = weights.classYear + weights.distance + weights.interest;
+  const share = (v: number) =>
+    totalSum === 0 ? 0 : Math.round((v / totalSum) * 100);
 
   function applyPreset(key: keyof typeof FIT_WEIGHT_PRESETS) {
     const p = FIT_WEIGHT_PRESETS[key];
@@ -92,18 +97,21 @@ export function FitWeightsControls({
         label="Class-year eligibility"
         description="How much a role's grad-year window matters."
         value={weights.classYear}
+        sharePct={share(weights.classYear)}
         onChange={(v) => updateWeight("classYear", v)}
       />
       <Slider
         label="Distance"
         description="How much commute distance to your home matters."
         value={weights.distance}
+        sharePct={share(weights.distance)}
         onChange={(v) => updateWeight("distance", v)}
       />
       <Slider
         label="Interest overlap"
         description="How much your interest-tag overlap with the role matters."
         value={weights.interest}
+        sharePct={share(weights.interest)}
         onChange={(v) => updateWeight("interest", v)}
       />
 
@@ -116,83 +124,37 @@ export function FitWeightsControls({
 }
 
 /**
- * When the user drags `key` to `newValue` (clamped to 0..100), redistribute
- * the remaining 100 - newValue budget across the other two components
- * proportionally to their prior values. Rounding is settled on the LAST
- * assigned slider so the tuple always sums to exactly 100.
+ * Load raw slider values from the profile. Missing / non-numeric / out-of-range
+ * fields (e.g. profile row without migration 0014 applied) fall back to
+ * Balanced defaults (50/30/20). No normalization — sliders are independent now.
  */
-function redistribute(
-  current: Weights,
-  key: WeightKey,
-  newValue: number
-): Weights {
-  const clamped = Math.max(0, Math.min(100, Math.round(newValue)));
-  const otherKeys = (Object.keys(current) as WeightKey[]).filter(
-    (k) => k !== key
-  );
-  const otherSum = otherKeys.reduce((s, k) => s + current[k], 0);
-  const remaining = 100 - clamped;
-
-  const next: Weights = { ...current, [key]: clamped };
-  if (otherSum === 0) {
-    // Split evenly if the others were both zero — otherwise proportional
-    // math divides by zero.
-    const half = Math.floor(remaining / 2);
-    next[otherKeys[0]] = half;
-    next[otherKeys[1]] = remaining - half;
-  } else {
-    // First key gets the proportional share, rounded. Second absorbs the
-    // rounding remainder so the sum stays exactly 100.
-    const first = Math.round((current[otherKeys[0]] / otherSum) * remaining);
-    next[otherKeys[0]] = first;
-    next[otherKeys[1]] = remaining - first;
-  }
-  return next;
-}
-
-/**
- * On first mount, coerce whatever the profile stored into a sum-100 tuple.
- * Missing / non-numeric fields (e.g. profile row without migration 0014
- * applied) OR all-zero rows fall back to Balanced (50/30/20). Everything
- * else is proportionally scaled to sum 100.
- */
-function normalizeToHundred(raw: {
+function loadInitialWeights(raw: {
   classYear: number | null | undefined;
   distance: number | null | undefined;
   interest: number | null | undefined;
 }): Weights {
-  const isFinitePositive = (v: number | null | undefined): v is number =>
-    typeof v === "number" && Number.isFinite(v) && v >= 0;
-  if (
-    !isFinitePositive(raw.classYear) ||
-    !isFinitePositive(raw.distance) ||
-    !isFinitePositive(raw.interest)
-  ) {
-    return { ...BALANCED_DEFAULT };
-  }
-  const sum = raw.classYear + raw.distance + raw.interest;
-  if (sum === 0) return { ...BALANCED_DEFAULT };
-  if (sum === 100)
-    return {
-      classYear: raw.classYear,
-      distance: raw.distance,
-      interest: raw.interest,
-    };
-  const cy = Math.round((raw.classYear / sum) * 100);
-  const d = Math.round((raw.distance / sum) * 100);
-  const i = 100 - cy - d; // absorbs rounding remainder
-  return { classYear: cy, distance: d, interest: i };
+  const clean = (v: number | null | undefined, fallback: number): number => {
+    if (typeof v !== "number" || !Number.isFinite(v)) return fallback;
+    return Math.max(1, Math.min(100, Math.round(v)));
+  };
+  return {
+    classYear: clean(raw.classYear, BALANCED_DEFAULT.classYear),
+    distance: clean(raw.distance, BALANCED_DEFAULT.distance),
+    interest: clean(raw.interest, BALANCED_DEFAULT.interest),
+  };
 }
 
 function Slider({
   label,
   description,
   value,
+  sharePct,
   onChange,
 }: {
   label: string;
   description: string;
   value: number;
+  sharePct: number;
   onChange: (v: number) => void;
 }) {
   return (
@@ -203,12 +165,12 @@ function Slider({
           <div className="text-xs text-muted-foreground">{description}</div>
         </div>
         <div className="text-right text-sm font-medium tabular-nums">
-          {value}%
+          {sharePct}%
         </div>
       </div>
       <input
         type="range"
-        min={0}
+        min={1}
         max={100}
         step={1}
         value={value}
