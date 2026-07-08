@@ -55,3 +55,11 @@ export async function triageAction(
   revalidatePath("/pipeline");
   revalidatePath("/archive");
 }
+
+export async function resetToInboxAction(applicationId: string) {
+  const { supabase } = await requireOwnedApplication(applicationId);
+  await setTriageState(supabase, applicationId, "inbox", null);
+  revalidatePath("/inbox");
+  revalidatePath("/pipeline");
+  revalidatePath("/archive");
+}

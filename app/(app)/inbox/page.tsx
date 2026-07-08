@@ -9,7 +9,7 @@ import { buttonVariants } from "@/components/ui/button";
 import { Plus } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { PipelineRow } from "../pipeline/_components/columns";
-import { InboxList } from "./_components/inbox-list";
+import { InboxViewSwitcher } from "./_components/inbox-view-switcher";
 
 export const dynamic = "force-dynamic";
 
@@ -83,7 +83,7 @@ export default async function InboxPage() {
           </p>
         </div>
       ) : (
-        <InboxList rows={rows} />
+        <InboxViewSwitcher rows={rows} />
       )}
     </div>
   );
