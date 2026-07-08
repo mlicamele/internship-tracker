@@ -22,13 +22,40 @@
 import { weightedNearestDistance } from "@/lib/distance";
 import type { Profile, Role } from "@/lib/db/types";
 
+/**
+ * Default weights when the profile hasn't set custom ones (or when the
+ * pure function is called without a profile in tests). Migration 0014
+ * mirrors these in the DB defaults (50/30/20 slider positions).
+ */
 export const FIT_WEIGHTS = {
   classYear: 0.5,
   distance: 0.3,
   interest: 0.2,
 } as const;
 
+/**
+ * Preset weight tuples surfaced in the settings picker. Named to match the
+ * UX labels ("Balanced" / "Location-focused" / "Eligibility-strict"). Each
+ * expresses the intent as raw slider positions (0-100); ratios are what
+ * matter downstream after normalization.
+ */
+export const FIT_WEIGHT_PRESETS = {
+  balanced: { classYear: 50, distance: 30, interest: 20 },
+  location: { classYear: 30, distance: 50, interest: 20 },
+  eligibility: { classYear: 70, distance: 20, interest: 10 },
+} as const satisfies Record<
+  string,
+  { classYear: number; distance: number; interest: number }
+>;
+export type FitWeightPresetName = keyof typeof FIT_WEIGHT_PRESETS;
+
 export interface FitComponents {
+  classYear: number;
+  distance: number;
+  interest: number;
+}
+
+export interface FitWeights {
   classYear: number;
   distance: number;
   interest: number;
@@ -38,7 +65,8 @@ export interface FitScore {
   /** Weighted total in [0, 1], rounded to 2 decimals for DB (NUMERIC(5,2)). */
   total: number;
   components: FitComponents;
-  weights: typeof FIT_WEIGHTS;
+  /** Normalized ratios (sum to 1.0) — either from profile or FIT_WEIGHTS default. */
+  weights: FitWeights;
   /** Actual nearest distance in miles used for the distance component. Null when unknown. */
   distanceMiles: number | null;
   /** True only when we *actively* determined the user's grad year falls outside the role's bounds. Null profile grad_year → false. */
@@ -66,7 +94,16 @@ type ScoreProfile = Pick<
   | "local_radius_miles"
   | "relocation_tolerance"
   | "interest_tags"
->;
+> &
+  // Weights are optional at the type level so tests can pass a minimal
+  // profile fixture; runtime code paths will always populate them via the
+  // migration 0014 default.
+  Partial<
+    Pick<
+      Profile,
+      "fit_weight_class_year" | "fit_weight_distance" | "fit_weight_interest"
+    >
+  >;
 
 type ScoreRole = Pick<
   Role,
@@ -81,10 +118,12 @@ export function computeFitScore(
   const { distance, distanceMiles } = scoreDistance(role, profile);
   const interest = scoreInterest(role, profile);
 
+  const weights = weightsFromProfile(profile);
+
   const total = round2(
-    classYear * FIT_WEIGHTS.classYear +
-      distance * FIT_WEIGHTS.distance +
-      interest * FIT_WEIGHTS.interest
+    classYear * weights.classYear +
+      distance * weights.distance +
+      interest * weights.interest
   );
 
   // Ineligible is a distinct concept from "class-year component = 0". Only
@@ -95,7 +134,7 @@ export function computeFitScore(
   return {
     total,
     components: { classYear, distance, interest },
-    weights: FIT_WEIGHTS,
+    weights,
     distanceMiles,
     ineligible,
   };
@@ -147,6 +186,31 @@ function scoreInterest(role: ScoreRole, profile: ScoreProfile): number {
 
 function round2(v: number): number {
   return Math.round(v * 100) / 100;
+}
+
+/**
+ * Read the profile's per-component fit weights (raw 0-100 sliders) and
+ * normalize into ratios summing to 1.0. Fall back to FIT_WEIGHTS when
+ * a profile column is missing (test fixtures, pre-migration rows).
+ * If every weight is somehow zero, fall back to defaults instead of
+ * dividing by zero.
+ */
+function weightsFromProfile(profile: ScoreProfile): {
+  classYear: number;
+  distance: number;
+  interest: number;
+} {
+  const cy = profile.fit_weight_class_year;
+  const d = profile.fit_weight_distance;
+  const i = profile.fit_weight_interest;
+  if (cy == null || d == null || i == null) return { ...FIT_WEIGHTS };
+  const sum = cy + d + i;
+  if (sum <= 0) return { ...FIT_WEIGHTS };
+  return {
+    classYear: cy / sum,
+    distance: d / sum,
+    interest: i / sum,
+  };
 }
 
 /** UI band for coloring a fit score. Thresholds: 0.75+ high, 0.5+ mid, else low. */

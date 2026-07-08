@@ -56,6 +56,21 @@ export async function saveSettings(formData: FormData) {
   );
   if (tags.length === 0) fail("Pick at least one interest");
 
+  // Fit weights (raw 0-100 slider values; normalized at score time)
+  function parseWeight(key: string, name: string): number {
+    const raw = Number(formData.get(key));
+    if (!Number.isInteger(raw) || raw < 0 || raw > 100) {
+      fail(`${name} weight must be between 0 and 100`);
+    }
+    return raw;
+  }
+  const weightClassYear = parseWeight("fit_weight_class_year", "Class-year");
+  const weightDistance = parseWeight("fit_weight_distance", "Distance");
+  const weightInterest = parseWeight("fit_weight_interest", "Interest");
+  if (weightClassYear + weightDistance + weightInterest === 0) {
+    fail("At least one fit-score slider must be greater than zero");
+  }
+
   // Re-geocode only if address actually changed (cheaper)
   const patch: ProfileUpdate = {
     school: school.trim(),
@@ -63,6 +78,9 @@ export async function saveSettings(formData: FormData) {
     local_radius_miles: radius,
     relocation_tolerance: tolerance as RelocationTolerance,
     interest_tags: tags,
+    fit_weight_class_year: weightClassYear,
+    fit_weight_distance: weightDistance,
+    fit_weight_interest: weightInterest,
   };
 
   // Fetch current profile to compare address — no API call if unchanged

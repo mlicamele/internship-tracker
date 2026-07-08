@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { saveSettings } from "../actions";
+import { FitWeightsControls } from "./fit-weights";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const GRAD_YEAR_OPTIONS = Array.from({ length: 9 }, (_, i) => CURRENT_YEAR + i);
@@ -133,6 +134,22 @@ export function SettingsForm({
         {selected.map((tag) => (
           <input key={tag} type="hidden" name="interest_tags" value={tag} />
         ))}
+      </section>
+
+      {/* Fit weights */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold">Fit score weights</h2>
+          <p className="text-xs text-muted-foreground">
+            Tune how the fit score is calculated. Pick a preset or set custom
+            values — sliders auto-normalize into a ratio at score time.
+          </p>
+        </div>
+        <FitWeightsControls
+          initialClassYear={profile.fit_weight_class_year}
+          initialDistance={profile.fit_weight_distance}
+          initialInterest={profile.fit_weight_interest}
+        />
       </section>
 
       {error && (

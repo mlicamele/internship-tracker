@@ -14,6 +14,9 @@ export interface ProfileUpdate {
   local_radius_miles?: number;
   relocation_tolerance?: RelocationTolerance;
   interest_tags?: string[];
+  fit_weight_class_year?: number;
+  fit_weight_distance?: number;
+  fit_weight_interest?: number;
 }
 
 export async function getProfile(

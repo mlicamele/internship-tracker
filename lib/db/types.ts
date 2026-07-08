@@ -64,6 +64,12 @@ export interface Profile {
   local_radius_miles: number;
   relocation_tolerance: RelocationTolerance;
   interest_tags: string[];
+  // Added in migration 0014 — raw 0..100 slider positions, normalized at
+  // compute time in lib/scoring/fit.ts. Defaults 50/30/20 mirror the
+  // previous hardcoded FIT_WEIGHTS.
+  fit_weight_class_year: number;
+  fit_weight_distance: number;
+  fit_weight_interest: number;
   created_at: string;
   updated_at: string;
   onboarding_completed_at: string | null;

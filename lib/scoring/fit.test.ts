@@ -392,3 +392,87 @@ describe("computeFitScore — weighted total", () => {
     expect(s.weights).toEqual(FIT_WEIGHTS);
   });
 });
+
+describe("computeFitScore — custom weights from profile", () => {
+  it("falls back to FIT_WEIGHTS when profile has no weight fields", () => {
+    // baseProfile has no fit_weight_* keys — should get the default.
+    const s = computeFitScore(baseRole, baseProfile);
+    expect(s.weights).toEqual(FIT_WEIGHTS);
+  });
+
+  it("normalizes raw slider values to a ratio summing to 1.0", () => {
+    const profile = {
+      ...baseProfile,
+      fit_weight_class_year: 40,
+      fit_weight_distance: 40,
+      fit_weight_interest: 20,
+    };
+    const s = computeFitScore(baseRole, profile);
+    expect(s.weights.classYear).toBeCloseTo(0.4, 5);
+    expect(s.weights.distance).toBeCloseTo(0.4, 5);
+    expect(s.weights.interest).toBeCloseTo(0.2, 5);
+    expect(
+      s.weights.classYear + s.weights.distance + s.weights.interest
+    ).toBeCloseTo(1, 5);
+  });
+
+  it("treats non-percentage raw values (e.g. 100/100/100) as equal thirds", () => {
+    const profile = {
+      ...baseProfile,
+      fit_weight_class_year: 100,
+      fit_weight_distance: 100,
+      fit_weight_interest: 100,
+    };
+    const s = computeFitScore(baseRole, profile);
+    expect(s.weights.classYear).toBeCloseTo(1 / 3, 5);
+    expect(s.weights.distance).toBeCloseTo(1 / 3, 5);
+    expect(s.weights.interest).toBeCloseTo(1 / 3, 5);
+  });
+
+  it("zeros a component when its slider is 0 (opt-out)", () => {
+    const profile = {
+      ...baseProfile,
+      fit_weight_class_year: 50,
+      fit_weight_distance: 50,
+      fit_weight_interest: 0,
+    };
+    const s = computeFitScore(baseRole, profile);
+    expect(s.weights.interest).toBe(0);
+    expect(s.weights.classYear).toBeCloseTo(0.5, 5);
+    expect(s.weights.distance).toBeCloseTo(0.5, 5);
+  });
+
+  it("falls back to defaults when every slider is 0 (guard against divide-by-zero)", () => {
+    const profile = {
+      ...baseProfile,
+      fit_weight_class_year: 0,
+      fit_weight_distance: 0,
+      fit_weight_interest: 0,
+    };
+    const s = computeFitScore(baseRole, profile);
+    expect(s.weights).toEqual(FIT_WEIGHTS);
+  });
+
+  it("changes the total when weights shift", () => {
+    // Same components, different weights → different totals.
+    const role = {
+      ...baseRole,
+      locations: [{ text: "NYC", lat: NYC_LAT, lng: NYC_LNG }],
+    };
+    const balanced = computeFitScore(role, {
+      ...baseProfile,
+      fit_weight_class_year: 50,
+      fit_weight_distance: 30,
+      fit_weight_interest: 20,
+    });
+    const distanceHeavy = computeFitScore(role, {
+      ...baseProfile,
+      fit_weight_class_year: 10,
+      fit_weight_distance: 80,
+      fit_weight_interest: 10,
+    });
+    // Both perfect class-year + distance, neutral interest; distance-heavy
+    // should score higher (weighs the strong signal more).
+    expect(distanceHeavy.total).toBeGreaterThan(balanced.total);
+  });
+});
