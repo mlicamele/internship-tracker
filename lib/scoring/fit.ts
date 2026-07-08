@@ -141,3 +141,12 @@ function scoreInterest(role: ScoreRole, profile: ScoreProfile): number {
 function round2(v: number): number {
   return Math.round(v * 100) / 100;
 }
+
+/** UI band for coloring a fit score. Thresholds: 0.75+ high, 0.5+ mid, else low. */
+export type FitBand = "high" | "mid" | "low";
+
+export function fitBand(total: number): FitBand {
+  if (total >= 0.75) return "high";
+  if (total >= 0.5) return "mid";
+  return "low";
+}

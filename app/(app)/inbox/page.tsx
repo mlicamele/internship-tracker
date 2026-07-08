@@ -4,11 +4,12 @@ import { createClient } from "@/lib/supabase/server";
 import { listByTriageState } from "@/lib/db/applications";
 import { getProfile } from "@/lib/db/profile";
 import { weightedNearestDistance } from "@/lib/distance";
+import { computeFitScore } from "@/lib/scoring/fit";
 import { buttonVariants } from "@/components/ui/button";
 import { Plus } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { PipelineRow } from "../pipeline/_components/columns";
-import { InboxCard } from "./_components/inbox-card";
+import { InboxList } from "./_components/inbox-list";
 
 export const dynamic = "force-dynamic";
 
@@ -35,7 +36,21 @@ export default async function InboxPage() {
       destinations.length > 0
         ? weightedNearestDistance(app.role.locations, destinations)
         : null,
+    fit_details: profile ? computeFitScore(app.role, profile) : null,
   }));
+
+  // Sort by fit-desc, then deadline-asc (nulls last), then created-desc.
+  rows.sort((a, b) => {
+    const fa = a.fit_details?.total ?? -1;
+    const fb = b.fit_details?.total ?? -1;
+    if (fa !== fb) return fb - fa;
+    const da = a.role.deadline_at ? new Date(a.role.deadline_at).getTime() : Infinity;
+    const db = b.role.deadline_at ? new Date(b.role.deadline_at).getTime() : Infinity;
+    if (da !== db) return da - db;
+    return (
+      new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+    );
+  });
 
   return (
     <div className="space-y-4">
@@ -68,11 +83,7 @@ export default async function InboxPage() {
           </p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {rows.map((row) => (
-            <InboxCard key={row.id} row={row} />
-          ))}
-        </div>
+        <InboxList rows={rows} />
       )}
     </div>
   );

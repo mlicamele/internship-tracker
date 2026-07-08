@@ -22,6 +22,7 @@ import {
 } from "./columns";
 import { ColumnVisibilityMenu } from "./column-visibility-menu";
 import { StatusFilter } from "./status-filter";
+import { TagFilter } from "./tag-filter";
 
 // Sticky-column widths (must match the <th>/<td> widths)
 const EDIT_COL_W = 76; // px — fits "👁 Edit"
@@ -57,6 +58,7 @@ export function PipelineTable({
   });
 
   const statusColumn = table.getColumn("status");
+  const tagsColumn = table.getColumn("tags");
   const visibleRows = table.getRowModel().rows;
 
   const mobileHiddenSet = useMemo(() => new Set(MOBILE_HIDDEN_COLUMNS), []);
@@ -65,7 +67,10 @@ export function PipelineTable({
     <div className="flex min-h-0 flex-1 flex-col gap-3">
       {statusColumn && (
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <StatusFilter column={statusColumn} />
+          <div className="flex flex-wrap items-center gap-3">
+            <StatusFilter column={statusColumn} />
+            {tagsColumn && <TagFilter column={tagsColumn} />}
+          </div>
           <ColumnVisibilityMenu table={table} />
         </div>
       )}

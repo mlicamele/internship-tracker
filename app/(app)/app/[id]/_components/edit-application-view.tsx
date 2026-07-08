@@ -59,6 +59,7 @@ const ROLE_FIELDS = [
   "work_model",
   "relocation_assistance",
   "compensation_hourly_dollars",
+  "tags",
 ] as const;
 type RoleFieldKey = (typeof ROLE_FIELDS)[number];
 
@@ -75,6 +76,7 @@ interface Draft {
   work_model: WorkModel | "";
   relocation_assistance: RelocationAssistance | "";
   compensation_hourly_dollars: string;
+  tags: string;
   // Company
   company_name: string;
   company_industry_tags: string;
@@ -141,6 +143,7 @@ function draftFromApplication(
       r.compensation_hourly_dollars !== null
         ? String(r.compensation_hourly_dollars)
         : "",
+    tags: (r.tags ?? []).join(", "),
     company_name: c.name,
     company_industry_tags: c.industry_tags.join(", "),
     company_hq_city: c.hq_city ?? "",
@@ -162,6 +165,11 @@ function snapshotAsDraftValue(
     return (v as unknown[])
       .filter((x): x is string => typeof x === "string")
       .join("\n");
+  }
+  if (field === "tags" && Array.isArray(v)) {
+    return (v as unknown[])
+      .filter((x): x is string => typeof x === "string")
+      .join(", ");
   }
   if (field === "deadline_at" || field === "posted_at") {
     return typeof v === "string" ? v.slice(0, 10) : "";
@@ -653,6 +661,23 @@ export function EditApplicationView({
             />
           </Field>
         </Grid>
+        <Field
+          label="Tags (comma-separated; only INTEREST_TAGS vocabulary is accepted, others silently dropped)"
+          confidence={conf.tags}
+          canRevert={
+            snapForDraft("tags") !== null && draft.tags !== snapForDraft("tags")
+          }
+          onRevert={() => revertField("tags")}
+          wide
+        >
+          <input
+            type="text"
+            value={draft.tags}
+            onChange={(e) => update("tags", e.target.value)}
+            className={INPUT_CLS}
+            placeholder="Quant, Fintech"
+          />
+        </Field>
       </Section>
 
       <Section title="Company">

@@ -5,6 +5,7 @@ import { useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
+import { fitBand, type FitScore } from "@/lib/scoring/fit";
 import {
   RelocationAssistanceCell,
   WorkModelCell,
@@ -17,6 +18,33 @@ import {
 } from "@/app/(app)/pipeline/_components/cell-formatters";
 import type { PipelineRow } from "@/app/(app)/pipeline/_components/columns";
 import { triageAction } from "../actions";
+
+function FitBadge({ fit }: { fit: FitScore | null }) {
+  if (!fit) return null;
+  const pct = Math.round(fit.total * 100);
+  const band = fitBand(fit.total);
+  const classes = fit.ineligible
+    ? "bg-destructive/10 text-destructive"
+    : band === "high"
+      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+      : band === "mid"
+        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+        : "bg-muted text-muted-foreground";
+  const tooltip = fit.ineligible
+    ? `Ineligible on class-year. Distance ${fit.components.distance.toFixed(2)} · interest ${fit.components.interest.toFixed(2)}`
+    : `class-year ${fit.components.classYear.toFixed(2)} × ${fit.weights.classYear} + distance ${fit.components.distance.toFixed(2)} × ${fit.weights.distance} + interest ${fit.components.interest.toFixed(2)} × ${fit.weights.interest}`;
+  return (
+    <span
+      title={tooltip}
+      className={cn(
+        "shrink-0 rounded px-1.5 py-1 text-xs font-medium tabular-nums",
+        classes
+      )}
+    >
+      Fit {pct}
+    </span>
+  );
+}
 
 function Stat({
   label,
@@ -52,7 +80,7 @@ export function InboxCard({ row }: { row: PipelineRow }) {
         pending && "opacity-50 pointer-events-none"
       )}
     >
-      {/* Header: company + role title — clickable to detail, with separate open-posting anchor */}
+      {/* Header: company + role title — clickable to detail, plus fit badge + open-posting anchor */}
       <div className="flex items-start gap-2">
         <Link
           href={`/app/${row.id}`}
@@ -63,6 +91,7 @@ export function InboxCard({ row }: { row: PipelineRow }) {
           </h2>
           <p className="text-sm text-muted-foreground">{r.title}</p>
         </Link>
+        <FitBadge fit={row.fit_details} />
         {r.jd_url && (
           <a
             href={r.jd_url}

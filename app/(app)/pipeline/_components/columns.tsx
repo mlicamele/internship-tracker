@@ -21,9 +21,63 @@ import {
 } from "./cell-formatters";
 import { InterviewsCell } from "./interviews-cell";
 import { StatusCell } from "./status-cell";
+import { fitBand, type FitScore } from "@/lib/scoring/fit";
+import { cn } from "@/lib/utils";
+
+function TagsCell({ tags }: { tags: string[] }) {
+  if (!tags || tags.length === 0) {
+    return <span className="text-muted-foreground">—</span>;
+  }
+  return (
+    <span
+      className="flex h-10 items-center gap-1 overflow-x-auto whitespace-nowrap"
+      title={tags.join(", ")}
+    >
+      {tags.map((t) => (
+        <span
+          key={t}
+          className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
+        >
+          {t}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function FitCell({ fit }: { fit: FitScore | null }) {
+  if (!fit) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const pct = Math.round(fit.total * 100);
+  const band = fitBand(fit.total);
+  const classes = fit.ineligible
+    ? "bg-destructive/10 text-destructive"
+    : band === "high"
+      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+      : band === "mid"
+        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
+        : "bg-muted text-muted-foreground";
+  const tooltip = fit.ineligible
+    ? `Ineligible (class-year). Distance ${fit.components.distance.toFixed(2)} · interest ${fit.components.interest.toFixed(2)}`
+    : `class-year ${fit.components.classYear.toFixed(2)} × ${fit.weights.classYear} + distance ${fit.components.distance.toFixed(2)} × ${fit.weights.distance} + interest ${fit.components.interest.toFixed(2)} × ${fit.weights.interest}`;
+  return (
+    <span
+      title={tooltip}
+      className={cn(
+        "inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 text-center text-xs font-medium tabular-nums",
+        classes
+      )}
+    >
+      {pct}
+    </span>
+  );
+}
 
 export interface PipelineRow extends ApplicationRow {
   distance_miles: number | null;
+  /** Computed at page-render time from the current profile. Null if no profile. */
+  fit_details: FitScore | null;
 }
 
 /** True iff current value differs from the snapshot's value for that field. */
@@ -124,6 +178,13 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
       </span>
     ),
     enableHiding: false,
+  },
+  {
+    id: "fit",
+    accessorFn: (row) => row.fit_details?.total ?? -1,
+    header: SORT_HEADER("Fit"),
+    cell: ({ row }) => <FitCell fit={row.original.fit_details} />,
+    sortDescFirst: true,
   },
   {
     id: "status",
@@ -378,6 +439,18 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
         />
       </span>
     ),
+  },
+  {
+    id: "tags",
+    accessorFn: (row) => row.role.tags,
+    header: "Tags",
+    cell: ({ row }) => <TagsCell tags={row.original.role.tags ?? []} />,
+    enableSorting: false,
+    filterFn: (row, columnId, filterValue: string[] | undefined) => {
+      if (!filterValue || filterValue.length === 0) return true;
+      const roleTags = (row.getValue(columnId) as string[]) ?? [];
+      return roleTags.some((t) => filterValue.includes(t));
+    },
   },
   {
     id: "resume",

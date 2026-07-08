@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listByTriageState } from "@/lib/db/applications";
 import { getProfile } from "@/lib/db/profile";
 import { weightedNearestDistance } from "@/lib/distance";
+import { computeFitScore } from "@/lib/scoring/fit";
 import { PipelineTable } from "../pipeline/_components/data-table";
 import type { PipelineRow } from "../pipeline/_components/columns";
 
@@ -31,6 +32,7 @@ export default async function ArchivePage() {
       destinations.length > 0
         ? weightedNearestDistance(app.role.locations, destinations)
         : null,
+    fit_details: profile ? computeFitScore(app.role, profile) : null,
   }));
 
   return (

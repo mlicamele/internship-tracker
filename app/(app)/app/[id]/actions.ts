@@ -14,7 +14,12 @@ import * as statusEventsDb from "@/lib/db/status-events";
 import * as companyNotesDb from "@/lib/db/company_notes";
 import { renameCompany, updateCompany } from "@/lib/db/companies";
 import { updateRole, type RoleUpdate } from "@/lib/db/roles";
+import { getProfile } from "@/lib/db/profile";
+import { computeFitScore } from "@/lib/scoring/fit";
+import { normalizeTags } from "@/lib/taxonomy";
 import { geocode } from "@/lib/geocode";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import type { Role } from "@/lib/db/types";
 import type {
   InterviewType,
   RelocationAssistance,
@@ -69,6 +74,41 @@ function revalidateDetail(applicationId: string) {
   revalidatePath("/pipeline");
   revalidatePath("/inbox");
   revalidatePath("/archive");
+}
+
+/** Fields whose value changes the fit-score for an application. */
+const RESCORE_FIELDS: readonly string[] = [
+  "tags",
+  "min_grad_year",
+  "max_grad_year",
+  "locations",
+  "work_model",
+];
+
+/**
+ * If the just-edited field feeds into fit-scoring, rescore this application
+ * against the freshly-updated role and the user's current profile. Silent
+ * on failure — the user's edit succeeded regardless.
+ */
+async function maybeRescoreAfterRoleEdit(
+  supabase: SupabaseClient,
+  userId: string,
+  applicationId: string,
+  updatedRole: Role,
+  field: string
+): Promise<void> {
+  if (!RESCORE_FIELDS.includes(field)) return;
+  try {
+    const profile = await getProfile(supabase, userId);
+    if (!profile) return;
+    const total = computeFitScore(updatedRole, profile).total;
+    await supabase
+      .from("applications")
+      .update({ fit_score: total })
+      .eq("id", applicationId);
+  } catch (err) {
+    console.error("post-edit fit rescore failed:", err);
+  }
 }
 
 export async function updateNotesAction(
@@ -197,7 +237,8 @@ export type RoleEditableField =
   | "target_year"
   | "target_season"
   | "work_model"
-  | "compensation_hourly_dollars";
+  | "compensation_hourly_dollars"
+  | "tags";
 
 export type InlineEditResult =
   | { ok: true }
@@ -218,7 +259,7 @@ export async function updateRoleFieldAction(
   field: RoleEditableField,
   rawValue: string | null
 ): Promise<InlineEditResult> {
-  const { supabase, application } = await requireOwnedApplication(applicationId);
+  const { supabase, application, user } = await requireOwnedApplication(applicationId);
 
   const patch: RoleUpdate = {};
 
@@ -348,6 +389,17 @@ export async function updateRoleFieldAction(
       }
       break;
     }
+    case "tags": {
+      // Accept comma-, semicolon-, or newline-separated tag names. Filter to
+      // the closed INTEREST_TAGS vocabulary; drop unknowns silently.
+      const raw = rawValue ?? "";
+      const items = raw
+        .split(/[\n,;]/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      patch.tags = normalizeTags(items);
+      break;
+    }
   }
 
   // Manual edit invalidates the LLM's confidence for this field — strip the key.
@@ -362,7 +414,14 @@ export async function updateRoleFieldAction(
   }
 
   try {
-    await updateRole(supabase, application.role_id, patch);
+    const updatedRole = await updateRole(supabase, application.role_id, patch);
+    await maybeRescoreAfterRoleEdit(
+      supabase,
+      user.id,
+      applicationId,
+      updatedRole,
+      field
+    );
     revalidateDetail(applicationId);
     return { ok: true };
   } catch (err) {
@@ -480,7 +539,7 @@ export async function revertRoleFieldAction(
   applicationId: string,
   field: RoleEditableField
 ): Promise<InlineEditResult> {
-  const { supabase, application } = await requireOwnedApplication(applicationId);
+  const { supabase, application, user } = await requireOwnedApplication(applicationId);
   const snapshot = application.role.extraction_snapshot ?? {
     values: {},
     confidences: {},
@@ -556,6 +615,13 @@ export async function revertRoleFieldAction(
     case "compensation_hourly_dollars":
       patch.compensation_hourly_dollars = typeof snap === "number" ? snap : null;
       break;
+    case "tags": {
+      const arr = Array.isArray(snap)
+        ? (snap as unknown[]).filter((x): x is string => typeof x === "string")
+        : [];
+      patch.tags = normalizeTags(arr);
+      break;
+    }
     default:
       return { ok: false, error: `Cannot revert ${field}` };
   }
@@ -573,7 +639,14 @@ export async function revertRoleFieldAction(
   }
 
   try {
-    await updateRole(supabase, application.role_id, patch);
+    const updatedRole = await updateRole(supabase, application.role_id, patch);
+    await maybeRescoreAfterRoleEdit(
+      supabase,
+      user.id,
+      applicationId,
+      updatedRole,
+      field
+    );
     revalidateDetail(applicationId);
     return { ok: true };
   } catch (err) {
