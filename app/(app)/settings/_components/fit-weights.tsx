@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { FIT_WEIGHT_PRESETS } from "@/lib/scoring/fit";
 import { cn } from "@/lib/utils";
 
@@ -10,53 +10,59 @@ const PRESET_ORDER = [
   { key: "eligibility", label: "Eligibility-strict" },
 ] as const;
 
+type WeightKey = "classYear" | "distance" | "interest";
+type Weights = Record<WeightKey, number>;
+
 /**
- * Three sliders (0-100) + preset chips for tuning the fit-score weights.
- * Ratios normalize server-side in `computeFitScore`, so slider values here
- * are raw 0-100 — an "effective %" preview underneath shows the normalized
- * ratio the score will actually use.
+ * Three linked sliders for tuning the fit-score weights. The sliders always
+ * sum to 100 — dragging one redistributes the remaining budget across the
+ * other two in proportion to their current values. Because slider positions
+ * are themselves percentages, no separate "effective %" label is needed.
  *
- * Emits three hidden inputs so the parent server-action form picks them up.
+ * Presets are pre-normalized to sum-100 (see FIT_WEIGHT_PRESETS). Emits three
+ * hidden inputs so the parent server-action form picks them up.
  */
+const BALANCED_DEFAULT: Weights = { classYear: 50, distance: 30, interest: 20 };
+
 export function FitWeightsControls({
   initialClassYear,
   initialDistance,
   initialInterest,
 }: {
-  initialClassYear: number;
-  initialDistance: number;
-  initialInterest: number;
+  initialClassYear: number | null | undefined;
+  initialDistance: number | null | undefined;
+  initialInterest: number | null | undefined;
 }) {
-  const [classYear, setClassYear] = useState(initialClassYear);
-  const [distance, setDistance] = useState(initialDistance);
-  const [interest, setInterest] = useState(initialInterest);
-
-  const sum = classYear + distance + interest;
-  const pct = useMemo(
-    () => ({
-      classYear: sum > 0 ? Math.round((classYear / sum) * 100) : 0,
-      distance: sum > 0 ? Math.round((distance / sum) * 100) : 0,
-      interest: sum > 0 ? Math.round((interest / sum) * 100) : 0,
-    }),
-    [classYear, distance, interest, sum]
+  const [weights, setWeights] = useState<Weights>(() =>
+    normalizeToHundred({
+      classYear: initialClassYear,
+      distance: initialDistance,
+      interest: initialInterest,
+    })
   );
+
+  function updateWeight(key: WeightKey, newValue: number) {
+    setWeights((current) => redistribute(current, key, newValue));
+  }
+
+  function applyPreset(key: keyof typeof FIT_WEIGHT_PRESETS) {
+    const p = FIT_WEIGHT_PRESETS[key];
+    setWeights({
+      classYear: p.classYear,
+      distance: p.distance,
+      interest: p.interest,
+    });
+  }
 
   const activePreset =
     PRESET_ORDER.find(({ key }) => {
       const p = FIT_WEIGHT_PRESETS[key];
       return (
-        p.classYear === classYear &&
-        p.distance === distance &&
-        p.interest === interest
+        p.classYear === weights.classYear &&
+        p.distance === weights.distance &&
+        p.interest === weights.interest
       );
     })?.key ?? null;
-
-  function applyPreset(key: keyof typeof FIT_WEIGHT_PRESETS) {
-    const p = FIT_WEIGHT_PRESETS[key];
-    setClassYear(p.classYear);
-    setDistance(p.distance);
-    setInterest(p.interest);
-  }
 
   return (
     <div className="space-y-4">
@@ -85,37 +91,97 @@ export function FitWeightsControls({
       <Slider
         label="Class-year eligibility"
         description="How much a role's grad-year window matters."
-        value={classYear}
-        onChange={setClassYear}
-        effectivePct={pct.classYear}
+        value={weights.classYear}
+        onChange={(v) => updateWeight("classYear", v)}
       />
       <Slider
         label="Distance"
         description="How much commute distance to your home matters."
-        value={distance}
-        onChange={setDistance}
-        effectivePct={pct.distance}
+        value={weights.distance}
+        onChange={(v) => updateWeight("distance", v)}
       />
       <Slider
         label="Interest overlap"
         description="How much your interest-tag overlap with the role matters."
-        value={interest}
-        onChange={setInterest}
-        effectivePct={pct.interest}
+        value={weights.interest}
+        onChange={(v) => updateWeight("interest", v)}
       />
 
-      {sum === 0 && (
-        <p className="text-xs text-destructive">
-          At least one slider must be greater than 0.
-        </p>
-      )}
-
       {/* Hidden inputs for the surrounding server-action form. */}
-      <input type="hidden" name="fit_weight_class_year" value={classYear} />
-      <input type="hidden" name="fit_weight_distance" value={distance} />
-      <input type="hidden" name="fit_weight_interest" value={interest} />
+      <input type="hidden" name="fit_weight_class_year" value={weights.classYear} />
+      <input type="hidden" name="fit_weight_distance" value={weights.distance} />
+      <input type="hidden" name="fit_weight_interest" value={weights.interest} />
     </div>
   );
+}
+
+/**
+ * When the user drags `key` to `newValue` (clamped to 0..100), redistribute
+ * the remaining 100 - newValue budget across the other two components
+ * proportionally to their prior values. Rounding is settled on the LAST
+ * assigned slider so the tuple always sums to exactly 100.
+ */
+function redistribute(
+  current: Weights,
+  key: WeightKey,
+  newValue: number
+): Weights {
+  const clamped = Math.max(0, Math.min(100, Math.round(newValue)));
+  const otherKeys = (Object.keys(current) as WeightKey[]).filter(
+    (k) => k !== key
+  );
+  const otherSum = otherKeys.reduce((s, k) => s + current[k], 0);
+  const remaining = 100 - clamped;
+
+  const next: Weights = { ...current, [key]: clamped };
+  if (otherSum === 0) {
+    // Split evenly if the others were both zero — otherwise proportional
+    // math divides by zero.
+    const half = Math.floor(remaining / 2);
+    next[otherKeys[0]] = half;
+    next[otherKeys[1]] = remaining - half;
+  } else {
+    // First key gets the proportional share, rounded. Second absorbs the
+    // rounding remainder so the sum stays exactly 100.
+    const first = Math.round((current[otherKeys[0]] / otherSum) * remaining);
+    next[otherKeys[0]] = first;
+    next[otherKeys[1]] = remaining - first;
+  }
+  return next;
+}
+
+/**
+ * On first mount, coerce whatever the profile stored into a sum-100 tuple.
+ * Missing / non-numeric fields (e.g. profile row without migration 0014
+ * applied) OR all-zero rows fall back to Balanced (50/30/20). Everything
+ * else is proportionally scaled to sum 100.
+ */
+function normalizeToHundred(raw: {
+  classYear: number | null | undefined;
+  distance: number | null | undefined;
+  interest: number | null | undefined;
+}): Weights {
+  const isFinitePositive = (v: number | null | undefined): v is number =>
+    typeof v === "number" && Number.isFinite(v) && v >= 0;
+  if (
+    !isFinitePositive(raw.classYear) ||
+    !isFinitePositive(raw.distance) ||
+    !isFinitePositive(raw.interest)
+  ) {
+    return { ...BALANCED_DEFAULT };
+  }
+  const sum = raw.classYear + raw.distance + raw.interest;
+  if (sum === 0) return { ...BALANCED_DEFAULT };
+  if (sum === 100)
+    return {
+      classYear: raw.classYear,
+      distance: raw.distance,
+      interest: raw.interest,
+    };
+  const cy = Math.round((raw.classYear / sum) * 100);
+  const d = Math.round((raw.distance / sum) * 100);
+  const i = 100 - cy - d; // absorbs rounding remainder
+  return { classYear: cy, distance: d, interest: i };
 }
 
 function Slider({
@@ -123,13 +189,11 @@ function Slider({
   description,
   value,
   onChange,
-  effectivePct,
 }: {
   label: string;
   description: string;
   value: number;
   onChange: (v: number) => void;
-  effectivePct: number;
 }) {
   return (
     <div className="space-y-1.5">
@@ -138,11 +202,8 @@ function Slider({
           <div className="text-sm font-medium">{label}</div>
           <div className="text-xs text-muted-foreground">{description}</div>
         </div>
-        <div className="text-right">
-          <div className="text-sm tabular-nums">{value}</div>
-          <div className="text-xs text-muted-foreground tabular-nums">
-            {effectivePct}%
-          </div>
+        <div className="text-right text-sm font-medium tabular-nums">
+          {value}%
         </div>
       </div>
       <input
