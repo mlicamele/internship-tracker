@@ -21,12 +21,15 @@ import { timingSafeEqual } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/service";
 import { ingestSimplifyListings } from "@/lib/simplify/ingest";
+import { CRON_MAX_NEW_EXTRACTIONS_PER_RUN } from "@/lib/llm/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_NEW_PER_RUN = 8;
+// Sourced from lib/llm/limits.ts so the cap moves in lockstep with the Groq
+// tier limits + user-manual reserve. Overflow rolls into tomorrow's run.
+const MAX_NEW_PER_RUN = CRON_MAX_NEW_EXTRACTIONS_PER_RUN;
 const WALL_CLOCK_BUDGET_MS = 45_000;
 
 function verifySecret(provided: string | null): boolean {

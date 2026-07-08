@@ -52,15 +52,17 @@ function parseArgs() {
     dryRun: false,
     limit: undefined as number | undefined,
     concurrency: 3,
+    allowHeavyRun: false,
   };
   for (const a of args) {
     if (a === "--dry-run") opts.dryRun = true;
     else if (a.startsWith("--limit=")) opts.limit = parseInt(a.slice(8), 10);
     else if (a.startsWith("--concurrency="))
       opts.concurrency = parseInt(a.slice(14), 10);
+    else if (a === "--allow-heavy-run") opts.allowHeavyRun = true;
     else if (a === "--help" || a === "-h") {
       console.log(
-        "Usage: npx tsx scripts/seed-simplify.ts [--dry-run] [--limit=N] [--concurrency=N]"
+        "Usage: npx tsx scripts/seed-simplify.ts [--dry-run] [--limit=N] [--concurrency=N] [--allow-heavy-run]"
       );
       process.exit(0);
     }
@@ -97,8 +99,32 @@ async function main() {
 
   const { createServiceClient } = await import("../lib/supabase/service");
   const { ingestSimplifyListings } = await import("../lib/simplify/ingest");
+  const {
+    estimateBatchCost,
+    AUTOMATED_DAILY_BUDGET,
+    GROQ_LIMITS,
+  } = await import("../lib/llm/limits");
 
   const supabase = createServiceClient();
+
+  // Pre-flight budget check. This script is the one that historically blew
+  // through TPD (57-URL day-1 seed). Any run projected over the automated
+  // daily budget must be explicitly authorised with --allow-heavy-run.
+  if (opts.limit !== undefined && !opts.dryRun) {
+    const est = estimateBatchCost(opts.limit);
+    console.log(
+      `Budget estimate: ${opts.limit} extraction(s) ≈ ${est.tokens.toLocaleString()} tokens (${est.pctOfDailyTPD}% of ${GROQ_LIMITS.tokensPerDay.toLocaleString()} TPD; ${est.pctOfAutomatedTPD}% of ${AUTOMATED_DAILY_BUDGET.tokens.toLocaleString()} automated budget).`
+    );
+    if (
+      (est.exceedsAutomatedTPD || est.exceedsAutomatedRPD) &&
+      !opts.allowHeavyRun
+    ) {
+      console.error(
+        `\nAborting: batch exceeds the automated daily budget. Re-run with --allow-heavy-run to confirm you accept eating into the user-manual reserve.`
+      );
+      process.exit(1);
+    }
+  }
 
   console.log(
     `Running seed ingest (dryRun=${opts.dryRun}, limit=${opts.limit ?? "∞"}, concurrency=${opts.concurrency})\n`
@@ -125,6 +151,9 @@ async function main() {
   console.log(`  existing apps        ${summary.existing_applications}`);
   console.log(`  extraction errors    ${summary.extraction_errors.length}`);
   console.log(`  duration             ${(summary.duration_ms / 1000).toFixed(1)}s`);
+  console.log(
+    `  tokens (est.)        ${summary.estimated_tokens_used.toLocaleString()} (${summary.estimated_pct_of_daily_tpd}% of daily TPD)`
+  );
 
   if (summary.fetch_warnings.length) {
     console.log("\nFetch warnings:");

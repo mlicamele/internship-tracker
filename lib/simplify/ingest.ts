@@ -28,6 +28,7 @@ import { getProfile } from "@/lib/db/profile";
 import { scrapeUrl } from "@/lib/scrape/url";
 import { geocode } from "@/lib/geocode";
 import { computeFitScore } from "@/lib/scoring/fit";
+import { GROQ_LIMITS } from "@/lib/llm/limits";
 import type { RoleLocation } from "@/lib/db/types";
 import { fetchSimplifySummerListings, type SimplifyRow } from "./fetch";
 
@@ -65,6 +66,10 @@ export interface IngestSummary {
   extraction_errors: { id: string; url: string; message: string }[];
   duration_ms: number;
   fetch_warnings: string[];
+  /** Rough token estimate for the Groq extractions this run performed. Prompt + jd_body chars / 4. */
+  estimated_tokens_used: number;
+  /** estimated_tokens_used / GROQ_LIMITS.tokensPerDay, in whole percent. */
+  estimated_pct_of_daily_tpd: number;
 }
 
 const DEFAULT_CONCURRENCY = 3;
@@ -199,6 +204,8 @@ export async function ingestSimplifyListings(
     extraction_errors: [],
     duration_ms: 0,
     fetch_warnings: [],
+    estimated_tokens_used: 0,
+    estimated_pct_of_daily_tpd: 0,
   };
 
   // Fetch profile once for fit-score computation across all app-creates this
@@ -333,6 +340,12 @@ export async function ingestSimplifyListings(
         try {
           progress(`extract ${row.company_name}: ${row.title}`);
           const extracted = await scrapeUrl(row.url);
+          // Rough token estimate: the LLM sees ~ jd_body + ~2K static prompt.
+          // Divide char count by 4 for the token approximation. Accumulated
+          // to make cron logs surface projected daily budget usage without a
+          // separate accounting table.
+          summary.estimated_tokens_used +=
+            Math.ceil(((extracted.jd_body?.length ?? 0) + 2000) / 4);
 
           // Trust the upstream (human-curated by Simplify maintainers) for
           // company + title. LLM extraction against a dead URL or bot wall
@@ -450,5 +463,8 @@ export async function ingestSimplifyListings(
   }
 
   summary.duration_ms = Date.now() - t0;
+  summary.estimated_pct_of_daily_tpd = Math.round(
+    (summary.estimated_tokens_used / GROQ_LIMITS.tokensPerDay) * 100
+  );
   return summary;
 }

@@ -42,11 +42,12 @@ function parseArgs() {
   return {
     dryRun: process.argv.includes("--dry-run"),
     force: process.argv.includes("--force"),
+    allowHeavyRun: process.argv.includes("--allow-heavy-run"),
   };
 }
 
 async function main() {
-  const { dryRun, force } = parseArgs();
+  const { dryRun, force, allowHeavyRun } = parseArgs();
   if (
     !process.env.NEXT_PUBLIC_SUPABASE_URL ||
     !process.env.SUPABASE_SERVICE_ROLE_KEY ||
@@ -74,6 +75,24 @@ async function main() {
   console.log(
     `${all.length} total roles; ${targets.length} to classify${force ? " (--force)" : ""}${dryRun ? " (dry-run)" : ""}.\n`
   );
+
+  // Pre-flight budget check. Tag classification is cheaper per call than a
+  // full extraction (~2K tokens vs 8K) but a large --force run could still
+  // eat meaningful budget.
+  if (!dryRun && targets.length > 0) {
+    const { estimateBatchCost, AUTOMATED_DAILY_BUDGET, GROQ_LIMITS, AVG_TOKENS_PER_TAG_CLASSIFY } =
+      await import("../lib/llm/limits");
+    const est = estimateBatchCost(targets.length, AVG_TOKENS_PER_TAG_CLASSIFY);
+    console.log(
+      `Budget estimate: ${targets.length} tag classification(s) ≈ ${est.tokens.toLocaleString()} tokens (${est.pctOfDailyTPD}% of ${GROQ_LIMITS.tokensPerDay.toLocaleString()} TPD; ${est.pctOfAutomatedTPD}% of ${AUTOMATED_DAILY_BUDGET.tokens.toLocaleString()} automated budget).\n`
+    );
+    if ((est.exceedsAutomatedTPD || est.exceedsAutomatedRPD) && !allowHeavyRun) {
+      console.error(
+        `Aborting: batch exceeds the automated daily budget. Re-run with --allow-heavy-run to confirm.`
+      );
+      process.exit(1);
+    }
+  }
 
   let tagged = 0;
   let empty = 0;

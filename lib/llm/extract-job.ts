@@ -14,6 +14,7 @@ import type {
   WorkModel,
 } from "@/lib/db/types";
 import { INTEREST_TAGS, normalizeTags } from "@/lib/taxonomy";
+import { serializeGroqCall, isRateLimitError } from "./rate-limiter";
 
 export interface ExtractedJob {
   company: string | null;
@@ -234,7 +235,11 @@ function client(): Groq {
         "GROQ_API_KEY missing. Get one free at https://console.groq.com/keys and add to .env.local + Vercel."
       );
     }
-    _client = new Groq({ apiKey });
+    // maxRetries bumped from SDK default of 2. Combined with the process-wide
+    // semaphore in lib/llm/rate-limiter.ts (concurrency=1 + 400ms inter-call
+    // gap), this gives us four attempts at transient 429/timeouts before we
+    // surface an error. TPD-exhaustion still fails after retries — expected.
+    _client = new Groq({ apiKey, maxRetries: 4 });
   }
   return _client;
 }
@@ -294,16 +299,18 @@ export async function extractJobFromEvidence(
   }
 
   try {
-    const completion = await client().chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: sections.join("\n\n---\n\n") },
-      ],
-      temperature: 0,
-      max_tokens: 4000,
-      response_format: { type: "json_object" },
-    });
+    const completion = await serializeGroqCall(() =>
+      client().chat.completions.create({
+        model: MODEL,
+        messages: [
+          { role: "system", content: SYSTEM_PROMPT },
+          { role: "user", content: sections.join("\n\n---\n\n") },
+        ],
+        temperature: 0,
+        max_tokens: 4000,
+        response_format: { type: "json_object" },
+      })
+    );
 
     const text = completion.choices[0]?.message?.content;
     if (!text) {
@@ -361,6 +368,11 @@ export async function extractJobFromEvidence(
     result.confidences = filterConfidencesToPopulated(result);
     return result;
   } catch (err) {
+    if (isRateLimitError(err)) {
+      console.warn(
+        `[groq-rate-limit] extractJobFromEvidence: ${err instanceof Error ? err.message : "429"}`
+      );
+    }
     return {
       ...SAFE_DEFAULT,
       jd_url: input.url,
@@ -521,23 +533,30 @@ export async function classifyRoleTags(
   const user = parts.join("\n");
 
   try {
-    const completion = await client().chat.completions.create({
-      model: MODEL,
-      messages: [
-        { role: "system", content: TAGS_SYSTEM_PROMPT },
-        { role: "user", content: user },
-      ],
-      temperature: 0,
-      max_tokens: 200,
-      response_format: { type: "json_object" },
-    });
+    const completion = await serializeGroqCall(() =>
+      client().chat.completions.create({
+        model: MODEL,
+        messages: [
+          { role: "system", content: TAGS_SYSTEM_PROMPT },
+          { role: "user", content: user },
+        ],
+        temperature: 0,
+        max_tokens: 200,
+        response_format: { type: "json_object" },
+      })
+    );
     const text = completion.choices[0]?.message?.content;
     if (!text) return [];
     const match = text.match(/\{[\s\S]*\}/);
     if (!match) return [];
     const parsed = JSON.parse(match[0]) as Record<string, unknown>;
     return parseTags(parsed.tags);
-  } catch {
+  } catch (err) {
+    if (isRateLimitError(err)) {
+      console.warn(
+        `[groq-rate-limit] classifyRoleTags: ${err instanceof Error ? err.message : "429"}`
+      );
+    }
     return [];
   }
 }
