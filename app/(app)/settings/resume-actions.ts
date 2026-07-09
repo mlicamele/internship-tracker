@@ -1,0 +1,137 @@
+"use server";
+
+import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
+import { createClient } from "@/lib/supabase/server";
+import {
+  listResumeVersions,
+  createResumeVersion,
+  deleteResumeVersion,
+  setMasterResumeVersion,
+} from "@/lib/db/resume-versions";
+import {
+  resumeStoragePath,
+  uploadResumeToStorage,
+  deleteResumeFromStorage,
+} from "@/lib/storage/resume";
+import { parseResumePdf } from "@/lib/resume/parse";
+
+const MAX_BYTES = 10 * 1024 * 1024;
+
+function fail(msg: string): never {
+  redirect(`/settings?resume_error=${encodeURIComponent(msg)}`);
+}
+
+export async function uploadResumeAction(formData: FormData) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const file = formData.get("file");
+  const labelRaw = formData.get("label");
+
+  if (!(file instanceof File) || file.size === 0) fail("Pick a PDF to upload");
+
+  const isPdf =
+    file.type === "application/pdf" ||
+    file.name.toLowerCase().endsWith(".pdf");
+  if (!isPdf) fail("Only PDFs are supported");
+
+  if (file.size > MAX_BYTES) fail("Resume must be under 10MB");
+
+  const labelInput = typeof labelRaw === "string" ? labelRaw.trim() : "";
+  const derived = file.name.replace(/\.pdf$/i, "");
+  const label = (labelInput || derived).slice(0, 80);
+
+  const bytes = Buffer.from(await file.arrayBuffer());
+
+  let text: string;
+  try {
+    const parsed = await parseResumePdf(bytes);
+    text = parsed.text;
+  } catch (err) {
+    fail(err instanceof Error ? err.message : "Could not parse PDF");
+  }
+
+  const versionId = crypto.randomUUID();
+  const path = resumeStoragePath(user.id, versionId);
+
+  try {
+    await uploadResumeToStorage(supabase, path, bytes);
+  } catch {
+    fail("Upload failed");
+  }
+
+  const existing = await listResumeVersions(supabase, user.id);
+  const isFirst = existing.length === 0;
+
+  try {
+    await createResumeVersion(supabase, {
+      id: versionId,
+      user_id: user.id,
+      label,
+      storage_path: path,
+      file_size_bytes: file.size,
+      mime_type: "application/pdf",
+      extracted_text: text,
+      is_master: isFirst,
+    });
+  } catch (err) {
+    try {
+      await deleteResumeFromStorage(supabase, path);
+    } catch {}
+    fail(err instanceof Error ? err.message : "Could not save resume");
+  }
+
+  revalidatePath("/settings");
+  redirect("/settings?resume_saved=1");
+}
+
+export async function deleteResumeAction(formData: FormData) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const id = formData.get("id");
+  if (typeof id !== "string" || !id) fail("Missing id");
+
+  const versions = await listResumeVersions(supabase, user.id);
+  const target = versions.find((r) => r.id === id);
+  if (!target) fail("Resume not found");
+
+  if (target.is_master === true && versions.length > 1) {
+    fail("Set another resume as master before deleting this one");
+  }
+
+  await deleteResumeVersion(supabase, user.id, id);
+
+  try {
+    await deleteResumeFromStorage(supabase, target.storage_path);
+  } catch (err) {
+    console.error("deleteResumeFromStorage failed:", err);
+  }
+
+  revalidatePath("/settings");
+  redirect("/settings?resume_deleted=1");
+}
+
+export async function setMasterResumeAction(formData: FormData) {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const id = formData.get("id");
+  if (typeof id !== "string" || !id) fail("Missing id");
+
+  await setMasterResumeVersion(supabase, user.id, id);
+
+  revalidatePath("/settings");
+  revalidatePath("/inbox");
+  redirect("/settings?resume_saved=1");
+}

@@ -133,6 +133,9 @@ export interface ResumeVersion {
   file_size_bytes: number | null;
   uploaded_at: string;
   is_master: boolean;
+  // Added in migration 0015
+  extracted_text: string | null;
+  mime_type: string;
 }
 
 export interface Application {
