@@ -71,6 +71,14 @@ export async function saveSettings(formData: FormData) {
     fail("At least one fit-score slider must be greater than zero");
   }
 
+  // Combined-score sliders (0..100 each). Same parseWeight validator; sum
+  // must be > 0 so normalization doesn't divide by zero.
+  const combinedWeightFit = parseWeight("combined_weight_fit", "Combined personal-fit");
+  const combinedWeightResume = parseWeight("combined_weight_resume", "Combined resume-fit");
+  if (combinedWeightFit + combinedWeightResume === 0) {
+    fail("At least one combined-score slider must be greater than zero");
+  }
+
   // Re-geocode only if address actually changed (cheaper)
   const patch: ProfileUpdate = {
     school: school.trim(),

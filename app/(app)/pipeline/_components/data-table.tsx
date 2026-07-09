@@ -33,10 +33,12 @@ const ROLE_COL_MAX_W = 280; // px — max width before role-title wraps
 export function PipelineTable({
   rows,
   resumeVersions,
+  interestTags,
   emptyState,
 }: {
   rows: PipelineRow[];
   resumeVersions: ResumeVersion[];
+  interestTags: string[];
   emptyState?: React.ReactNode;
 }) {
   const [sorting, setSorting] = useState<SortingState>([
@@ -58,7 +60,7 @@ export function PipelineTable({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
-    meta: { resumeVersions },
+    meta: { resumeVersions, interestTags },
   });
 
   const statusColumn = table.getColumn("status");

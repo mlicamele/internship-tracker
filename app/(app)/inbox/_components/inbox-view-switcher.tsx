@@ -35,7 +35,13 @@ function serverSnapshot(): View {
  * subscribes to a custom event so pick() in this tab and cross-tab storage
  * writes both flip the view.
  */
-export function InboxViewSwitcher({ rows }: { rows: PipelineRow[] }) {
+export function InboxViewSwitcher({
+  rows,
+  interestTags,
+}: {
+  rows: PipelineRow[];
+  interestTags: string[];
+}) {
   const view = useSyncExternalStore(subscribe, readStoredView, serverSnapshot);
 
   function pick(next: View) {
@@ -58,7 +64,11 @@ export function InboxViewSwitcher({ rows }: { rows: PipelineRow[] }) {
         </ViewTab>
       </div>
 
-      {view === "list" ? <InboxList rows={rows} /> : <TriageDeck rows={rows} />}
+      {view === "list" ? (
+        <InboxList rows={rows} interestTags={interestTags} />
+      ) : (
+        <TriageDeck rows={rows} interestTags={interestTags} />
+      )}
     </div>
   );
 }

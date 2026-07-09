@@ -70,6 +70,11 @@ export interface Profile {
   fit_weight_class_year: number;
   fit_weight_distance: number;
   fit_weight_interest: number;
+  // Added in migration 0016 — raw 0..100 sliders that weight the combined
+  // score = combined_weight_fit × fit + combined_weight_resume × resume_fit.
+  // Normalized at read time (lib/scoring/combined.ts). Default 50/50.
+  combined_weight_fit: number;
+  combined_weight_resume: number;
   created_at: string;
   updated_at: string;
   onboarding_completed_at: string | null;
@@ -138,6 +143,55 @@ export interface ResumeVersion {
   mime_type: string;
 }
 
+/** Coarse tier derived from the numeric resume_fit_score, used for badge coloring. */
+export type ResumeFitTier = "strong" | "partial" | "weak" | "insufficient";
+
+/**
+ * 1-10 grade emitted by the LLM per rubric category. Each level has an
+ * explicit anchor description in the SYSTEM_PROMPT (see
+ * lib/scoring/resume-fit.ts). The LLM picks a described level, not a raw
+ * number — this preserves the categorical-in-disguise property while
+ * giving fine-grained resolution (weights are coprime so every integer
+ * 20-100 in the composed total is reachable).
+ */
+export type RubricGrade =
+  | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10;
+
+/**
+ * Shape of applications.resume_fit_details JSONB. The LLM emits per-
+ * category grades; the numeric total on applications.resume_fit_score is
+ * composed deterministically from these (see lib/scoring/resume-fit.ts).
+ * Keeping the grades alongside the total means we can retune weights and
+ * grade-to-contribution mappings without re-running the LLM.
+ *
+ * Seniority is deliberately non-monotonic on the mapping side: grades
+ * 5-6 = "at the expected level" are the peak, 10 = "over-qualified" is a
+ * weaker signal for internships. The rubric anchors make this explicit.
+ */
+export interface ResumeFitDetails {
+  tier: ResumeFitTier;
+  /** Grades 1..10. Each anchor described in the LLM prompt. */
+  skills_coverage: RubricGrade;
+  domain_depth: RubricGrade;
+  seniority_fit: RubricGrade;
+  impact_evidence: RubricGrade;
+  recency_trajectory: RubricGrade;
+  practical_exposure: RubricGrade;
+  /** Per-category one-sentence note explaining WHY that grade was picked. Short — 1 sentence. */
+  skills_coverage_note: string;
+  domain_depth_note: string;
+  seniority_fit_note: string;
+  impact_evidence_note: string;
+  recency_trajectory_note: string;
+  practical_exposure_note: string;
+  matched_skills: string[];
+  gaps: string[];
+  /** Overall rationale synthesizing the six categories. 1-2 sentences. */
+  rationale: string;
+  /** The resume_version_id whose extracted_text produced this score. */
+  resume_version_id_used: string;
+}
+
 export interface Application {
   id: string;
   user_id: string;
@@ -148,6 +202,12 @@ export interface Application {
   snoozed_until: string | null;
   notes: string;
   fit_score: number | null;
+  // Added in migration 0016 — see lib/scoring/resume-fit.ts.
+  resume_fit_score: number | null;
+  resume_fit_details: ResumeFitDetails | null;
+  resume_fit_scored_at: string | null;
+  /** sha256 of (resume_version_id + normalized role tags + normalized jd_body_text). Cache key. */
+  resume_fit_input_hash: string | null;
   created_at: string;
   updated_at: string;
 }

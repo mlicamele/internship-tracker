@@ -7,6 +7,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { findOrCreate as findOrCreateCompany } from "@/lib/db/companies";
 import { create as createRole } from "@/lib/db/roles";
 import { createApplication } from "@/lib/db/applications";
+import { scoreAndPersistResumeFit } from "@/lib/db/resume-fit";
 import { getProfile } from "@/lib/db/profile";
 import { scrapeUrl, type ScrapeResult } from "@/lib/scrape/url";
 import { extractJobFromEvidence } from "@/lib/llm/extract-job";
@@ -170,6 +171,16 @@ export async function createApplicationFromUrl(
     triageState: input.triageState,
     fitScore,
   });
+
+  // Score resume-fit inline for user-triggered paste_url / capture flows.
+  // Simplify cron ingest (lib/simplify/ingest.ts) deliberately does NOT
+  // score inline — those come in high volume and get picked up by the
+  // batch backfill / on-master-set trigger instead.
+  try {
+    await scoreAndPersistResumeFit(supabase, application.id);
+  } catch (err) {
+    console.error("resume-fit score on create failed:", err);
+  }
 
   return {
     applicationId: application.id,

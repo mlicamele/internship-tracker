@@ -17,6 +17,7 @@ import { renameCompany, updateCompany } from "@/lib/db/companies";
 import { updateRole, type RoleUpdate } from "@/lib/db/roles";
 import { getProfile } from "@/lib/db/profile";
 import { computeFitScore } from "@/lib/scoring/fit";
+import { scoreAndPersistResumeFit } from "@/lib/db/resume-fit";
 import { normalizeTags } from "@/lib/taxonomy";
 import { geocode } from "@/lib/geocode";
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -112,6 +113,24 @@ async function maybeRescoreAfterRoleEdit(
   }
 }
 
+/**
+ * Resume-fit input hash depends on role.title, role.tags, and jd_body_text.
+ * Only the first two are editable via this action, so we rescore just this
+ * one application when either changes. Non-throwing.
+ */
+async function maybeRescoreResumeFitAfterRoleEdit(
+  supabase: SupabaseClient,
+  applicationId: string,
+  field: string
+): Promise<void> {
+  if (field !== "title" && field !== "tags") return;
+  try {
+    await scoreAndPersistResumeFit(supabase, applicationId);
+  } catch (err) {
+    console.error("resume-fit rescore after role edit failed:", err);
+  }
+}
+
 export async function updateNotesAction(
   applicationId: string,
   notes: string
@@ -140,6 +159,14 @@ export async function updateResumeVersionAction(
     await setResumeVersion(supabase, applicationId, resumeVersionId);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : "Save failed" };
+  }
+  // The effective resume may have changed — rescore this app. Non-force
+  // so inbox apps (which always resolve to master) cache-hit instead of
+  // burning a Groq call on an attachment they'll never use.
+  try {
+    await scoreAndPersistResumeFit(supabase, applicationId);
+  } catch (err) {
+    console.error("resume-fit rescore after attach failed:", err);
   }
   revalidateDetail(applicationId);
   return { ok: true };
@@ -447,6 +474,7 @@ export async function updateRoleFieldAction(
       updatedRole,
       field
     );
+    await maybeRescoreResumeFitAfterRoleEdit(supabase, applicationId, field);
     revalidateDetail(applicationId);
     return { ok: true };
   } catch (err) {
@@ -672,6 +700,7 @@ export async function revertRoleFieldAction(
       updatedRole,
       field
     );
+    await maybeRescoreResumeFitAfterRoleEdit(supabase, applicationId, field);
     revalidateDetail(applicationId);
     return { ok: true };
   } catch (err) {

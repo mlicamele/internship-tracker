@@ -5,6 +5,7 @@ import { getProfile } from "@/lib/db/profile";
 import { listResumeVersions } from "@/lib/db/resume-versions";
 import { weightedNearestDistance } from "@/lib/distance";
 import { computeFitScore } from "@/lib/scoring/fit";
+import { computeCombinedScore } from "@/lib/scoring/combined";
 import { PipelineTable } from "../pipeline/_components/data-table";
 import type { PipelineRow } from "../pipeline/_components/columns";
 
@@ -28,14 +29,24 @@ export default async function ArchivePage() {
       ? [{ lat: profile.home_lat, lng: profile.home_lng, weight: 1 }]
       : [];
 
-  const rows: PipelineRow[] = applications.map((app) => ({
-    ...app,
-    distance_miles:
-      destinations.length > 0
-        ? weightedNearestDistance(app.role.locations, destinations)
-        : null,
-    fit_details: profile ? computeFitScore(app.role, profile) : null,
-  }));
+  const rows: PipelineRow[] = applications.map((app) => {
+    const fit = profile ? computeFitScore(app.role, profile) : null;
+    const combined = computeCombinedScore(
+      fit?.total ?? null,
+      app.resume_fit_score,
+      profile
+    );
+    return {
+      ...app,
+      distance_miles:
+        destinations.length > 0
+          ? weightedNearestDistance(app.role.locations, destinations)
+          : null,
+      fit_details: fit,
+      combined_total: combined.total,
+      combined_used_resume_signal: combined.usedResumeSignal,
+    };
+  });
 
   return (
     <div className="space-y-6">
@@ -49,6 +60,7 @@ export default async function ArchivePage() {
       <PipelineTable
         rows={rows}
         resumeVersions={resumeVersions}
+        interestTags={profile?.interest_tags ?? []}
         emptyState={<span>No snoozed or skipped roles.</span>}
       />
     </div>

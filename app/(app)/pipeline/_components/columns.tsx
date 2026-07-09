@@ -25,26 +25,114 @@ import {
 } from "./cell-formatters";
 import { InterviewsCell } from "./interviews-cell";
 import { StatusCell } from "./status-cell";
-import { fitBand, type FitScore } from "@/lib/scoring/fit";
+import type { FitScore } from "@/lib/scoring/fit";
 import { cn } from "@/lib/utils";
+import type { ResumeFitDetails } from "@/lib/db/types";
+import { ResumeFitDetailsPopover } from "@/components/resume-fit-details-popover";
 
-function TagsCell({ tags }: { tags: string[] }) {
+function TagsCell({
+  tags,
+  interestTags,
+}: {
+  tags: string[];
+  interestTags: string[];
+}) {
   if (!tags || tags.length === 0) {
     return <span className="text-muted-foreground">—</span>;
   }
+  const interestSet = new Set(interestTags);
   return (
     <span
       className="flex h-10 items-center gap-1 overflow-x-auto whitespace-nowrap"
       title={tags.join(", ")}
     >
-      {tags.map((t) => (
-        <span
-          key={t}
-          className="shrink-0 rounded-sm bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground"
-        >
-          {t}
-        </span>
-      ))}
+      {tags.map((t) => {
+        const isInterest = interestSet.has(t);
+        return (
+          <span
+            key={t}
+            className={cn(
+              "shrink-0 rounded-sm px-1.5 py-0.5 text-[10px] font-medium",
+              isInterest
+                ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                : "bg-muted text-muted-foreground"
+            )}
+          >
+            {t}
+          </span>
+        );
+      })}
+    </span>
+  );
+}
+
+/** Shared score-band classes so Fit, Resume, and Combined share the same visual language. */
+function scoreBandClasses(pct: number): string {
+  if (pct >= 75) return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
+  if (pct >= 50) return "bg-amber-500/15 text-amber-700 dark:text-amber-400";
+  return "bg-muted text-muted-foreground";
+}
+
+/** Numeric badge for resume_fit_score. Same palette as fit; dimmed since Combined subsumes it. */
+function ResumeFitCell({
+  score,
+  details,
+}: {
+  score: number | null;
+  details: ResumeFitDetails | null;
+}) {
+  if (score == null) {
+    if (details?.tier === "insufficient") {
+      return (
+        <ResumeFitDetailsPopover details={details} score={null}>
+          <span className="inline-block rounded bg-muted px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground opacity-60">
+            low signal
+          </span>
+        </ResumeFitDetailsPopover>
+      );
+    }
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const pct = Math.round(score);
+  return (
+    <ResumeFitDetailsPopover details={details} score={score}>
+      <span
+        className={cn(
+          "inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 text-center text-xs font-medium tabular-nums opacity-60",
+          scoreBandClasses(pct)
+        )}
+      >
+        {pct}
+      </span>
+    </ResumeFitDetailsPopover>
+  );
+}
+
+/** Numeric badge for the read-time combined score. Primary/hero — full opacity. */
+function CombinedCell({
+  total,
+  usedResumeSignal,
+}: {
+  total: number | null;
+  usedResumeSignal: boolean;
+}) {
+  if (total == null) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const pct = Math.round(total);
+  const tooltip = usedResumeSignal
+    ? "Combined = weighted mix of fit + resume-fit"
+    : "Combined shows fit only — no resume-fit score yet";
+  return (
+    <span
+      title={tooltip}
+      className={cn(
+        "inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 text-center text-xs font-medium tabular-nums",
+        scoreBandClasses(pct),
+        !usedResumeSignal && "italic"
+      )}
+    >
+      {pct}
     </span>
   );
 }
@@ -54,14 +142,10 @@ function FitCell({ fit }: { fit: FitScore | null }) {
     return <span className="text-xs text-muted-foreground">—</span>;
   }
   const pct = Math.round(fit.total * 100);
-  const band = fitBand(fit.total);
+  // Ineligibility is a distinct visual state that survives the dim-vs-hero treatment.
   const classes = fit.ineligible
     ? "bg-destructive/10 text-destructive"
-    : band === "high"
-      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-      : band === "mid"
-        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-        : "bg-muted text-muted-foreground";
+    : scoreBandClasses(pct);
   const tooltip = fit.ineligible
     ? `Ineligible (class-year). Distance ${fit.components.distance.toFixed(2)} · interest ${fit.components.interest.toFixed(2)}`
     : `class-year ${fit.components.classYear.toFixed(2)} × ${fit.weights.classYear} + distance ${fit.components.distance.toFixed(2)} × ${fit.weights.distance} + interest ${fit.components.interest.toFixed(2)} × ${fit.weights.interest}`;
@@ -69,7 +153,7 @@ function FitCell({ fit }: { fit: FitScore | null }) {
     <span
       title={tooltip}
       className={cn(
-        "inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 text-center text-xs font-medium tabular-nums",
+        "inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 text-center text-xs font-medium tabular-nums opacity-60",
         classes
       )}
     >
@@ -82,12 +166,18 @@ export interface PipelineRow extends ApplicationRow {
   distance_miles: number | null;
   /** Computed at page-render time from the current profile. Null if no profile. */
   fit_details: FitScore | null;
+  /** Read-time combined score. Null when both fit and resume-fit are absent. */
+  combined_total: number | null;
+  /** False when combined fell back to fit alone (no resume-fit score). */
+  combined_used_resume_signal: boolean;
 }
 
 declare module "@tanstack/react-table" {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
   interface TableMeta<TData extends RowData> {
     resumeVersions: ResumeVersion[];
+    /** Profile's chosen interest tags — used to color matching role tags green. */
+    interestTags: string[];
   }
 }
 
@@ -191,10 +281,34 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     enableHiding: false,
   },
   {
+    id: "combined",
+    accessorFn: (row) => row.combined_total ?? -1,
+    header: SORT_HEADER("Combined"),
+    cell: ({ row }) => (
+      <CombinedCell
+        total={row.original.combined_total}
+        usedResumeSignal={row.original.combined_used_resume_signal}
+      />
+    ),
+    sortDescFirst: true,
+  },
+  {
     id: "fit",
     accessorFn: (row) => row.fit_details?.total ?? -1,
     header: SORT_HEADER("Fit"),
     cell: ({ row }) => <FitCell fit={row.original.fit_details} />,
+    sortDescFirst: true,
+  },
+  {
+    id: "resume_fit",
+    accessorFn: (row) => row.resume_fit_score ?? -1,
+    header: SORT_HEADER("Resume fit"),
+    cell: ({ row }) => (
+      <ResumeFitCell
+        score={row.original.resume_fit_score}
+        details={row.original.resume_fit_details}
+      />
+    ),
     sortDescFirst: true,
   },
   {
@@ -455,7 +569,12 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     id: "tags",
     accessorFn: (row) => row.role.tags,
     header: "Tags",
-    cell: ({ row }) => <TagsCell tags={row.original.role.tags ?? []} />,
+    cell: ({ row, table }) => (
+      <TagsCell
+        tags={row.original.role.tags ?? []}
+        interestTags={table.options.meta?.interestTags ?? []}
+      />
+    ),
     enableSorting: false,
     filterFn: (row, columnId, filterValue: string[] | undefined) => {
       if (!filterValue || filterValue.length === 0) return true;

@@ -14,7 +14,9 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
-import { fitBand, type FitScore } from "@/lib/scoring/fit";
+import type { FitScore } from "@/lib/scoring/fit";
+import { ResumeFitDetailsPopover } from "@/components/resume-fit-details-popover";
+import type { ResumeFitDetails } from "@/lib/db/types";
 import {
   RelocationAssistanceCell,
   WorkModelCell,
@@ -41,7 +43,13 @@ const EXIT_DURATION = 0.25;
  * for "help me decide" among viable roles. Users can still triage those in
  * list view.
  */
-export function TriageDeck({ rows }: { rows: PipelineRow[] }) {
+export function TriageDeck({
+  rows,
+  interestTags,
+}: {
+  rows: PipelineRow[];
+  interestTags: string[];
+}) {
   const eligibleRows = rows.filter((r) => !r.fit_details?.ineligible);
   const [deck, setDeck] = useState<PipelineRow[]>(eligibleRows);
   const [lastAction, setLastAction] = useState<
@@ -142,8 +150,13 @@ export function TriageDeck({ rows }: { rows: PipelineRow[] }) {
       </div>
 
       <div className="relative mx-auto w-full max-w-md h-[560px] sm:h-[600px]">
-        {next && <PeekCard key={next.id} row={next} />}
-        <TopCard key={top.id} row={top} onSwipe={handleSwipe} />
+        {next && <PeekCard key={next.id} row={next} interestTags={interestTags} />}
+        <TopCard
+          key={top.id}
+          row={top}
+          interestTags={interestTags}
+          onSwipe={handleSwipe}
+        />
       </div>
 
       <div className="mx-auto flex max-w-md items-center gap-2">
@@ -181,9 +194,11 @@ export function TriageDeck({ rows }: { rows: PipelineRow[] }) {
 
 function TopCard({
   row,
+  interestTags,
   onSwipe,
 }: {
   row: PipelineRow;
+  interestTags: string[];
   onSwipe: (a: TriageAction) => void;
 }) {
   const x = useMotionValue(0);
@@ -229,20 +244,26 @@ function TopCard({
       onDragEnd={handleDragEnd}
       className="absolute inset-0 z-10 cursor-grab touch-none rounded-xl border border-border bg-card shadow-lg active:cursor-grabbing"
     >
-      <CardContent row={row} />
+      <CardContent row={row} interestTags={interestTags} />
       <DirectionOverlay x={x} y={y} />
     </motion.div>
   );
 }
 
-function PeekCard({ row }: { row: PipelineRow }) {
+function PeekCard({
+  row,
+  interestTags,
+}: {
+  row: PipelineRow;
+  interestTags: string[];
+}) {
   return (
     <div
       aria-hidden
       className="absolute inset-0 z-0 rounded-xl border border-border bg-card shadow-md"
       style={{ transform: "translateY(12px) scale(0.96)" }}
     >
-      <CardContent row={row} muted />
+      <CardContent row={row} interestTags={interestTags} muted />
     </div>
   );
 }
@@ -288,8 +309,17 @@ function DirectionOverlay({
   );
 }
 
-function CardContent({ row, muted = false }: { row: PipelineRow; muted?: boolean }) {
+function CardContent({
+  row,
+  interestTags,
+  muted = false,
+}: {
+  row: PipelineRow;
+  interestTags: string[];
+  muted?: boolean;
+}) {
   const r = row.role;
+  const interestSet = new Set(interestTags);
   return (
     <div
       className={cn(
@@ -306,19 +336,31 @@ function CardContent({ row, muted = false }: { row: PipelineRow; muted?: boolean
             {r.title}
           </p>
         </div>
-        <FitBadge fit={row.fit_details} />
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <CombinedBadge total={row.combined_total} usedResumeSignal={row.combined_used_resume_signal} />
+          <FitBadge fit={row.fit_details} />
+          <ResumeFitBadge score={row.resume_fit_score} details={row.resume_fit_details} />
+        </div>
       </div>
 
       {r.tags && r.tags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
-          {r.tags.map((t) => (
-            <span
-              key={t}
-              className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
-            >
-              {t}
-            </span>
-          ))}
+          {r.tags.map((t) => {
+            const isInterest = interestSet.has(t);
+            return (
+              <span
+                key={t}
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                  isInterest
+                    ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                    : "border-border bg-muted/40 text-muted-foreground"
+                )}
+              >
+                {t}
+              </span>
+            );
+          })}
         </div>
       )}
 
@@ -383,25 +425,82 @@ function Stat({
   );
 }
 
+function scoreBandClasses(pct: number): string {
+  if (pct >= 75) return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
+  if (pct >= 50) return "bg-amber-500/15 text-amber-700 dark:text-amber-400";
+  return "bg-muted text-muted-foreground";
+}
+
 function FitBadge({ fit }: { fit: FitScore | null }) {
   if (!fit) return null;
   const pct = Math.round(fit.total * 100);
-  const band = fitBand(fit.total);
   const classes = fit.ineligible
     ? "bg-destructive/10 text-destructive"
-    : band === "high"
-      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-      : band === "mid"
-        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-        : "bg-muted text-muted-foreground";
+    : scoreBandClasses(pct);
   return (
     <span
       className={cn(
-        "shrink-0 rounded px-2 py-1 text-sm font-semibold tabular-nums",
+        "shrink-0 rounded px-2 py-0.5 text-xs font-semibold tabular-nums opacity-60",
         classes
       )}
     >
       Fit {pct}
+    </span>
+  );
+}
+
+function ResumeFitBadge({
+  score,
+  details,
+}: {
+  score: number | null;
+  details: ResumeFitDetails | null;
+}) {
+  if (score == null) {
+    if (details?.tier === "insufficient") {
+      return (
+        <ResumeFitDetailsPopover details={details} score={null} align="end">
+          <span className="shrink-0 rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground opacity-60">
+            Resume — low signal
+          </span>
+        </ResumeFitDetailsPopover>
+      );
+    }
+    return null;
+  }
+  const pct = Math.round(score);
+  return (
+    <ResumeFitDetailsPopover details={details} score={score} align="end">
+      <span
+        className={cn(
+          "shrink-0 rounded px-2 py-0.5 text-xs font-semibold tabular-nums opacity-60",
+          scoreBandClasses(pct)
+        )}
+      >
+        Resume {pct}
+      </span>
+    </ResumeFitDetailsPopover>
+  );
+}
+
+function CombinedBadge({
+  total,
+  usedResumeSignal,
+}: {
+  total: number | null;
+  usedResumeSignal: boolean;
+}) {
+  if (total == null) return null;
+  const pct = Math.round(total);
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded px-2 py-0.5 text-xs font-semibold tabular-nums",
+        scoreBandClasses(pct),
+        !usedResumeSignal && "italic"
+      )}
+    >
+      Combined {pct}
     </span>
   );
 }

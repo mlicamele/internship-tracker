@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { saveSettings } from "../actions";
 import { FitWeightsControls } from "./fit-weights";
+import { CombinedWeightsControls } from "./combined-weights";
 
 const CURRENT_YEAR = new Date().getFullYear();
 const GRAD_YEAR_OPTIONS = Array.from({ length: 9 }, (_, i) => CURRENT_YEAR + i);
@@ -149,6 +150,21 @@ export function SettingsForm({
           initialClassYear={profile.fit_weight_class_year}
           initialDistance={profile.fit_weight_distance}
           initialInterest={profile.fit_weight_interest}
+        />
+      </section>
+
+      {/* Combined score weights */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold">Combined score</h2>
+          <p className="text-xs text-muted-foreground">
+            The combined column mixes personal fit and resume fit. Sliders
+            auto-normalize into a ratio at display time. Defaults to 50/50.
+          </p>
+        </div>
+        <CombinedWeightsControls
+          initialFit={profile.combined_weight_fit}
+          initialResume={profile.combined_weight_resume}
         />
       </section>
 

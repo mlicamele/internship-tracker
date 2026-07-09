@@ -123,6 +123,8 @@ Rules:
   max_grad_year = the LATEST grad year still eligible. Used when the JD says "must not be too early in degree" or sets a ceiling like "must graduate by Spring YYYY."
     * "Must be graduating by Spring 2028" → max_grad_year = 2028
     * "Graduating no later than December 2028" → max = 2028
+    * "Complete your degree by August 2028 or earlier" → max = 2028  (compound month+year with "or earlier" — the "by" and "or earlier" BOTH point to an UPPER bound)
+    * "Expected graduation by May 2028 or before" → max = 2028
     * "Senior only / class of 2028" → max = 2028 (also min = 2028 since closed)
     * "Rising junior+" (with internship target_year=Y) → max = Y + 2 (rising junior in summer Y graduates Y+2)
     * "Rising sophomore+" → max = Y + 3
@@ -343,6 +345,8 @@ export async function extractJobFromEvidence(
         : "summer",
       min_grad_year: parseGradYear(parsed.min_grad_year),
       max_grad_year: parseGradYear(parsed.max_grad_year),
+      // NOTE: min/max are re-validated below via sanityCheckGradYears
+      // after the object is built.
       relocation_assistance: RELOCATION_VALUES.has(
         parsed.relocation_assistance as string
       )
@@ -362,6 +366,12 @@ export async function extractJobFromEvidence(
       overall_confidence: parseConfidence(parsed.overall_confidence),
       notes: typeof parsed.notes === "string" ? parsed.notes : "",
     };
+
+    // Safety net for a specific LLM failure mode: on compound phrases like
+    // "by August 2028 or earlier" the model sometimes puts the year in
+    // min_grad_year when the "or earlier" / "no later than" / "before"
+    // language unambiguously indicates an UPPER bound. Detect and swap.
+    sanityCheckGradYears(result);
 
     // Strip confidence keys for fields that ended up null/default — keeps
     // the badge from appearing on empty values even if the LLM emits "low".
@@ -455,6 +465,48 @@ function parseGradYear(v: unknown): number | null {
   if (typeof v !== "number") return null;
   if (!Number.isInteger(v) || v < 2024 || v > 2034) return null;
   return v;
+}
+
+/**
+ * Safety net for a specific LLM failure mode. On compound phrases like
+ * "you will complete your degree by August 2028 or earlier", the model
+ * sometimes stores the year in min_grad_year even though "or earlier" /
+ * "no later than" / "before" unambiguously indicate the UPPER bound.
+ *
+ * If the JD body contains unambiguous upper-bound language AND the extractor
+ * put a value in min_grad_year but LEFT max_grad_year null, swap. Only fires
+ * on this specific mismatch — never swaps when both bounds were extracted.
+ * Mutates `r` in place.
+ *
+ * See the CLAUDE.md Lesson: "In JD eligibility text, the directional word
+ * is everything".
+ */
+function sanityCheckGradYears(r: ExtractedJob): void {
+  if (r.min_grad_year == null || r.max_grad_year != null) return;
+  const body = r.jd_body.toLowerCase();
+  const upperBoundSignals = [
+    /\bor earlier\b/,
+    /\bor before\b/,
+    /\bno later than\b/,
+    /\bby\s+(january|february|march|april|may|june|july|august|september|october|november|december|spring|summer|fall|winter|q[1-4])?\s*\d{4}\b/,
+  ];
+  const hasUpperBoundSignal = upperBoundSignals.some((re) => re.test(body));
+  if (!hasUpperBoundSignal) return;
+
+  // Also require the OPPOSITE signal is absent — if both "or later" and
+  // "or earlier" appear (rare bilateral bounds), the LLM's assignment is
+  // trustworthy and we should NOT flip.
+  const lowerBoundSignals = [/\bor later\b/, /\band beyond\b/, /\bor after\b/];
+  if (lowerBoundSignals.some((re) => re.test(body))) return;
+
+  // Swap.
+  r.max_grad_year = r.min_grad_year;
+  r.min_grad_year = null;
+  // Mirror the confidence key too so the revert-button + badge stay honest.
+  if (r.confidences.min_grad_year) {
+    r.confidences.max_grad_year = r.confidences.min_grad_year;
+    delete r.confidences.min_grad_year;
+  }
 }
 
 function parseConfidence(v: unknown): number {

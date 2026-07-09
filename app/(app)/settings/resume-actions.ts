@@ -15,6 +15,7 @@ import {
   deleteResumeFromStorage,
 } from "@/lib/storage/resume";
 import { parseResumePdf } from "@/lib/resume/parse";
+import { rescoreResumeFitForUserMaster } from "@/lib/db/resume-fit";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
@@ -85,6 +86,17 @@ export async function uploadResumeAction(formData: FormData) {
     fail(err instanceof Error ? err.message : "Could not save resume");
   }
 
+  // First-ever upload auto-promotes to master. Any application without an
+  // explicit resume_version_id now resolves to this new resume, so score.
+  // Non-throwing — settings save should still succeed on Groq errors.
+  if (isFirst) {
+    try {
+      await rescoreResumeFitForUserMaster(supabase, user.id);
+    } catch (err) {
+      console.error("resume-fit rescore after first upload failed:", err);
+    }
+  }
+
   revalidatePath("/settings");
   redirect("/settings?resume_saved=1");
 }
@@ -130,6 +142,13 @@ export async function setMasterResumeAction(formData: FormData) {
   if (typeof id !== "string" || !id) fail("Missing id");
 
   await setMasterResumeVersion(supabase, user.id, id);
+
+  // Apps without an explicit attach now resolve to the new master. Rescore.
+  try {
+    await rescoreResumeFitForUserMaster(supabase, user.id);
+  } catch (err) {
+    console.error("resume-fit rescore after master swap failed:", err);
+  }
 
   revalidatePath("/settings");
   revalidatePath("/inbox");

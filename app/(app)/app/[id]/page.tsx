@@ -6,7 +6,11 @@ import { listForApplication as listInterviews } from "@/lib/db/interviews";
 import { listForApplication as listStatusEvents } from "@/lib/db/status-events";
 import { get as getCompanyNote } from "@/lib/db/company_notes";
 import { listResumeVersions } from "@/lib/db/resume-versions";
+import { getProfile } from "@/lib/db/profile";
+import { computeFitScore } from "@/lib/scoring/fit";
+import { computeCombinedScore } from "@/lib/scoring/combined";
 import { EditApplicationView } from "./_components/edit-application-view";
+import { ScoresStrip } from "./_components/scores-strip";
 import { ExternalLink } from "@/components/icons";
 
 export const dynamic = "force-dynamic";
@@ -29,14 +33,22 @@ export default async function ApplicationDetailPage({
     notFound();
   }
 
-  const [interviews, statusEvents, companyNote, resumeVersions] = await Promise.all([
+  const [interviews, statusEvents, companyNote, resumeVersions, profile] = await Promise.all([
     listInterviews(supabase, id),
     listStatusEvents(supabase, id),
     getCompanyNote(supabase, user.id, application.role.company.id),
     listResumeVersions(supabase, user.id),
+    getProfile(supabase, user.id),
   ]);
 
   const isDraft = application.triage_state === "draft";
+
+  const fit = profile ? computeFitScore(application.role, profile) : null;
+  const combined = computeCombinedScore(
+    fit?.total ?? null,
+    application.resume_fit_score,
+    profile
+  );
 
   return (
     <article className="mx-auto max-w-3xl space-y-8">
@@ -76,6 +88,15 @@ export default async function ApplicationDetailPage({
             </p>
           )}
         </div>
+        {!isDraft && (
+          <ScoresStrip
+            fit={fit}
+            resumeFitScore={application.resume_fit_score}
+            resumeFitDetails={application.resume_fit_details}
+            combinedTotal={combined.total}
+            combinedUsedResumeSignal={combined.usedResumeSignal}
+          />
+        )}
       </header>
 
       <EditApplicationView

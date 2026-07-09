@@ -13,7 +13,13 @@ import { InboxCard } from "./inbox-card";
  * the user's grad_year and it falls outside the role's stated bounds).
  * Null profile → no fit_details → treated as eligible (unknown).
  */
-export function InboxList({ rows }: { rows: PipelineRow[] }) {
+export function InboxList({
+  rows,
+  interestTags,
+}: {
+  rows: PipelineRow[];
+  interestTags: string[];
+}) {
   const [showIneligible, setShowIneligible] = useState(false);
 
   const eligible: PipelineRow[] = [];
@@ -26,7 +32,7 @@ export function InboxList({ rows }: { rows: PipelineRow[] }) {
   return (
     <div className="space-y-3">
       {eligible.map((row) => (
-        <InboxCard key={row.id} row={row} />
+        <InboxCard key={row.id} row={row} interestTags={interestTags} />
       ))}
 
       {ineligible.length > 0 && (
@@ -43,7 +49,9 @@ export function InboxList({ rows }: { rows: PipelineRow[] }) {
             <hr className="flex-1 border-border" />
           </div>
           {showIneligible &&
-            ineligible.map((row) => <InboxCard key={row.id} row={row} />)}
+            ineligible.map((row) => (
+              <InboxCard key={row.id} row={row} interestTags={interestTags} />
+            ))}
         </>
       )}
     </div>

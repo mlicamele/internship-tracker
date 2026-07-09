@@ -5,7 +5,9 @@ import { useTransition } from "react";
 import { Button } from "@/components/ui/button";
 import { ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
-import { fitBand, type FitScore } from "@/lib/scoring/fit";
+import type { FitScore } from "@/lib/scoring/fit";
+import { ResumeFitDetailsPopover } from "@/components/resume-fit-details-popover";
+import type { ResumeFitDetails } from "@/lib/db/types";
 import {
   RelocationAssistanceCell,
   WorkModelCell,
@@ -19,17 +21,18 @@ import {
 import type { PipelineRow } from "@/app/(app)/pipeline/_components/columns";
 import { triageAction } from "../actions";
 
+function scoreBandClasses(pct: number): string {
+  if (pct >= 75) return "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400";
+  if (pct >= 50) return "bg-amber-500/15 text-amber-700 dark:text-amber-400";
+  return "bg-muted text-muted-foreground";
+}
+
 function FitBadge({ fit }: { fit: FitScore | null }) {
   if (!fit) return null;
   const pct = Math.round(fit.total * 100);
-  const band = fitBand(fit.total);
   const classes = fit.ineligible
     ? "bg-destructive/10 text-destructive"
-    : band === "high"
-      ? "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
-      : band === "mid"
-        ? "bg-amber-500/15 text-amber-700 dark:text-amber-400"
-        : "bg-muted text-muted-foreground";
+    : scoreBandClasses(pct);
   const tooltip = fit.ineligible
     ? `Ineligible on class-year. Distance ${fit.components.distance.toFixed(2)} · interest ${fit.components.interest.toFixed(2)}`
     : `class-year ${fit.components.classYear.toFixed(2)} × ${fit.weights.classYear} + distance ${fit.components.distance.toFixed(2)} × ${fit.weights.distance} + interest ${fit.components.interest.toFixed(2)} × ${fit.weights.interest}`;
@@ -37,11 +40,71 @@ function FitBadge({ fit }: { fit: FitScore | null }) {
     <span
       title={tooltip}
       className={cn(
-        "shrink-0 rounded px-1.5 py-1 text-xs font-medium tabular-nums",
+        "shrink-0 rounded px-1.5 py-1 text-xs font-medium tabular-nums opacity-60",
         classes
       )}
     >
       Fit {pct}
+    </span>
+  );
+}
+
+function ResumeFitBadge({
+  score,
+  details,
+}: {
+  score: number | null;
+  details: ResumeFitDetails | null;
+}) {
+  if (score == null) {
+    if (details?.tier === "insufficient") {
+      return (
+        <ResumeFitDetailsPopover details={details} score={null} align="end">
+          <span className="shrink-0 rounded bg-muted px-1.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground opacity-60">
+            Resume — low signal
+          </span>
+        </ResumeFitDetailsPopover>
+      );
+    }
+    return null;
+  }
+  const pct = Math.round(score);
+  return (
+    <ResumeFitDetailsPopover details={details} score={score} align="end">
+      <span
+        className={cn(
+          "shrink-0 rounded px-1.5 py-1 text-xs font-medium tabular-nums opacity-60",
+          scoreBandClasses(pct)
+        )}
+      >
+        Resume {pct}
+      </span>
+    </ResumeFitDetailsPopover>
+  );
+}
+
+function CombinedBadge({
+  total,
+  usedResumeSignal,
+}: {
+  total: number | null;
+  usedResumeSignal: boolean;
+}) {
+  if (total == null) return null;
+  const pct = Math.round(total);
+  const tooltip = usedResumeSignal
+    ? "Combined = weighted mix of Fit + Resume Fit"
+    : "Combined shows Fit only — no Resume Fit score yet";
+  return (
+    <span
+      title={tooltip}
+      className={cn(
+        "shrink-0 rounded px-1.5 py-1 text-xs font-medium tabular-nums",
+        scoreBandClasses(pct),
+        !usedResumeSignal && "italic"
+      )}
+    >
+      Combined {pct}
     </span>
   );
 }
@@ -63,9 +126,16 @@ function Stat({
   );
 }
 
-export function InboxCard({ row }: { row: PipelineRow }) {
+export function InboxCard({
+  row,
+  interestTags,
+}: {
+  row: PipelineRow;
+  interestTags: string[];
+}) {
   const [pending, startTransition] = useTransition();
   const r = row.role;
+  const interestSet = new Set(interestTags);
 
   function triage(action: "apply" | "skip" | "snooze") {
     startTransition(async () => {
@@ -91,7 +161,17 @@ export function InboxCard({ row }: { row: PipelineRow }) {
           </h2>
           <p className="text-sm text-muted-foreground">{r.title}</p>
         </Link>
-        <FitBadge fit={row.fit_details} />
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <CombinedBadge
+            total={row.combined_total}
+            usedResumeSignal={row.combined_used_resume_signal}
+          />
+          <FitBadge fit={row.fit_details} />
+          <ResumeFitBadge
+            score={row.resume_fit_score}
+            details={row.resume_fit_details}
+          />
+        </div>
         {r.jd_url && (
           <a
             href={r.jd_url}
@@ -127,6 +207,28 @@ export function InboxCard({ row }: { row: PipelineRow }) {
           {formatCompensation(r.compensation_hourly_dollars)}
         </Stat>
       </div>
+
+      {/* Tags — matching interests render green (parity with triage-deck) */}
+      {r.tags && r.tags.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {r.tags.map((t) => {
+            const isInterest = interestSet.has(t);
+            return (
+              <span
+                key={t}
+                className={cn(
+                  "rounded-full border px-2 py-0.5 text-[11px] font-medium",
+                  isInterest
+                    ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-700 dark:text-emerald-400"
+                    : "border-border bg-muted/40 text-muted-foreground"
+                )}
+              >
+                {t}
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       {/* Action row */}
       <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">

@@ -6,6 +6,7 @@ import { getProfile } from "@/lib/db/profile";
 import { listResumeVersions } from "@/lib/db/resume-versions";
 import { weightedNearestDistance } from "@/lib/distance";
 import { computeFitScore } from "@/lib/scoring/fit";
+import { computeCombinedScore } from "@/lib/scoring/combined";
 import { buttonVariants } from "@/components/ui/button";
 import { Plus } from "@/components/icons";
 import { cn } from "@/lib/utils";
@@ -32,14 +33,24 @@ export default async function PipelinePage() {
       ? [{ lat: profile.home_lat, lng: profile.home_lng, weight: 1 }]
       : [];
 
-  const rows: PipelineRow[] = applications.map((app) => ({
-    ...app,
-    distance_miles:
-      destinations.length > 0
-        ? weightedNearestDistance(app.role.locations, destinations)
-        : null,
-    fit_details: profile ? computeFitScore(app.role, profile) : null,
-  }));
+  const rows: PipelineRow[] = applications.map((app) => {
+    const fit = profile ? computeFitScore(app.role, profile) : null;
+    const combined = computeCombinedScore(
+      fit?.total ?? null,
+      app.resume_fit_score,
+      profile
+    );
+    return {
+      ...app,
+      distance_miles:
+        destinations.length > 0
+          ? weightedNearestDistance(app.role.locations, destinations)
+          : null,
+      fit_details: fit,
+      combined_total: combined.total,
+      combined_used_resume_signal: combined.usedResumeSignal,
+    };
+  });
 
   return (
     <div className="flex h-[calc(100dvh-8rem)] flex-col gap-4">
@@ -62,6 +73,7 @@ export default async function PipelinePage() {
       <PipelineTable
         rows={rows}
         resumeVersions={resumeVersions}
+        interestTags={profile?.interest_tags ?? []}
         emptyState={
           <span>
             No active applications.{" "}
