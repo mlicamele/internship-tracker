@@ -5,6 +5,7 @@ import { getById } from "@/lib/db/applications";
 import { listForApplication as listInterviews } from "@/lib/db/interviews";
 import { listForApplication as listStatusEvents } from "@/lib/db/status-events";
 import { get as getCompanyNote } from "@/lib/db/company_notes";
+import { listResumeVersions } from "@/lib/db/resume-versions";
 import { EditApplicationView } from "./_components/edit-application-view";
 import { ExternalLink } from "@/components/icons";
 
@@ -28,10 +29,11 @@ export default async function ApplicationDetailPage({
     notFound();
   }
 
-  const [interviews, statusEvents, companyNote] = await Promise.all([
+  const [interviews, statusEvents, companyNote, resumeVersions] = await Promise.all([
     listInterviews(supabase, id),
     listStatusEvents(supabase, id),
     getCompanyNote(supabase, user.id, application.role.company.id),
+    listResumeVersions(supabase, user.id),
   ]);
 
   const isDraft = application.triage_state === "draft";
@@ -81,6 +83,7 @@ export default async function ApplicationDetailPage({
         interviews={interviews}
         statusEvents={statusEvents}
         initialCompanyNotes={companyNote?.notes ?? ""}
+        resumeVersions={resumeVersions}
       />
     </article>
   );

@@ -10,6 +10,7 @@ import type {
   ExtractionSnapshot,
   Interview,
   RelocationAssistance,
+  ResumeVersion,
   StatusEvent,
   TargetSeason,
   WorkModel,
@@ -38,6 +39,7 @@ import {
   updateCompanyNameAction,
   updateInterviewAction,
   updateNotesAction,
+  updateResumeVersionAction,
   updateRoleFieldAction,
 } from "../actions";
 
@@ -86,6 +88,7 @@ interface Draft {
   company_notes: string;
   // Application
   status: ApplicationStatus;
+  resume_version_id: string;
 }
 
 function isoToDatetimeLocal(iso: string | null): string {
@@ -150,6 +153,7 @@ function draftFromApplication(
     app_notes: application.notes,
     company_notes: companyNotes,
     status: application.status,
+    resume_version_id: application.resume_version_id ?? "",
   };
 }
 
@@ -184,11 +188,13 @@ export function EditApplicationView({
   interviews,
   statusEvents,
   initialCompanyNotes,
+  resumeVersions,
 }: {
   application: ApplicationRow;
   interviews: Interview[];
   statusEvents: StatusEvent[];
   initialCompanyNotes: string;
+  resumeVersions: ResumeVersion[];
 }) {
   const router = useRouter();
   const isDraft = application.triage_state === "draft";
@@ -363,6 +369,15 @@ export function EditApplicationView({
           tasks.push(saveCompanyNotesAction(companyId, draft.company_notes));
         } else if (field === "status") {
           tasks.push(transitionStatusAction(appId, draft.status));
+        } else if (field === "resume_version_id") {
+          tasks.push(
+            updateResumeVersionAction(
+              appId,
+              draft.resume_version_id || null
+            ).then((r) => {
+              if (!r.ok) errs.push(`resume: ${r.error}`);
+            })
+          );
         }
       }
 
@@ -725,6 +740,36 @@ export function EditApplicationView({
               value={draft.status}
               onChange={(next) => update("status", next)}
             />
+          </Field>
+        )}
+        {!isDraft && (
+          <Field label="Resume">
+            {resumeVersions.length === 0 ? (
+              <p className="text-xs text-muted-foreground">
+                No resumes uploaded. Add one in{" "}
+                <a
+                  href="/settings"
+                  className="underline underline-offset-2 hover:text-foreground"
+                >
+                  Settings
+                </a>
+                .
+              </p>
+            ) : (
+              <select
+                value={draft.resume_version_id}
+                onChange={(e) => update("resume_version_id", e.target.value)}
+                className={SELECT_CLS}
+              >
+                <option value="">— None —</option>
+                {resumeVersions.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.label}
+                    {r.is_master ? " (master)" : ""}
+                  </option>
+                ))}
+              </select>
+            )}
           </Field>
         )}
         <Field label="Notes" wide>

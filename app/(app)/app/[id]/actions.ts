@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   getById,
   hardDelete,
+  setResumeVersion,
   setTriageState,
   updateNotes,
 } from "@/lib/db/applications";
@@ -118,6 +119,30 @@ export async function updateNotesAction(
   const { supabase } = await requireOwnedApplication(applicationId);
   await updateNotes(supabase, applicationId, notes);
   revalidateDetail(applicationId);
+}
+
+export async function updateResumeVersionAction(
+  applicationId: string,
+  resumeVersionId: string | null
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { supabase, user } = await requireOwnedApplication(applicationId);
+  if (resumeVersionId) {
+    const { data, error } = await supabase
+      .from("resume_versions")
+      .select("id")
+      .eq("id", resumeVersionId)
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (error) return { ok: false, error: error.message };
+    if (!data) return { ok: false, error: "Resume not found" };
+  }
+  try {
+    await setResumeVersion(supabase, applicationId, resumeVersionId);
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : "Save failed" };
+  }
+  revalidateDetail(applicationId);
+  return { ok: true };
 }
 
 export async function saveCompanyNotesAction(

@@ -57,11 +57,7 @@ export function ResumeSection({
         </p>
       )}
 
-      <form
-        action={uploadResumeAction}
-        encType="multipart/form-data"
-        className="space-y-2"
-      >
+      <form action={uploadResumeAction} className="space-y-2">
         <Input type="file" name="file" accept="application/pdf" required />
         <Input
           type="text"
