@@ -14,6 +14,7 @@ import type {
   WorkModel,
 } from "@/lib/db/types";
 import { INTEREST_TAGS, normalizeTags } from "@/lib/taxonomy";
+import { MODEL_FOR } from "./model";
 import { serializeGroqCall, isRateLimitError } from "./rate-limiter";
 
 export interface ExtractedJob {
@@ -226,7 +227,6 @@ export interface ExtractJobInput {
 
 const MAX_HTML_CHARS = 12000;
 const MAX_BODY_CHARS = 8000;
-const MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 
 let _client: Groq | null = null;
 function client(): Groq {
@@ -303,7 +303,7 @@ export async function extractJobFromEvidence(
   try {
     const completion = await serializeGroqCall(() =>
       client().chat.completions.create({
-        model: MODEL,
+        model: MODEL_FOR.extraction,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: sections.join("\n\n---\n\n") },
@@ -587,7 +587,7 @@ export async function classifyRoleTags(
   try {
     const completion = await serializeGroqCall(() =>
       client().chat.completions.create({
-        model: MODEL,
+        model: MODEL_FOR.classification,
         messages: [
           { role: "system", content: TAGS_SYSTEM_PROMPT },
           { role: "user", content: user },

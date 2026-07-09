@@ -190,6 +190,13 @@ export interface ResumeFitDetails {
   rationale: string;
   /** The resume_version_id whose extracted_text produced this score. */
   resume_version_id_used: string;
+  /**
+   * Groq model that produced this score. Diagnostic trail for cross-model
+   * comparisons — optional so pre-split rows still type-check. Populated by
+   * `scoreResumeFit` on successful LLM compositions; absent on the
+   * insufficient-text stub.
+   */
+  model?: string;
 }
 
 export interface Application {

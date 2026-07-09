@@ -29,9 +29,9 @@ import type {
   Role,
   RubricGrade,
 } from "@/lib/db/types";
+import { MODEL_FOR } from "@/lib/llm/model";
 import { isRateLimitError, serializeGroqCall } from "@/lib/llm/rate-limiter";
 
-const MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
 const MAX_JD_CHARS = 6000;
 const MAX_RESUME_CHARS = 6000;
 /** Below this we don't have enough resume signal to score honestly. */
@@ -255,7 +255,8 @@ export function computeInputHash(
   const body = (role.jd_body_text ?? "").replace(/\s+/g, " ").trim();
   const title = (role.title ?? "").trim().toLowerCase();
   const raw = [
-    "v4-6cat-1to10", // bump when hashing scheme or prompt shape changes
+    "v5-6cat-1to10", // bump when hashing scheme or prompt shape changes
+    MODEL_FOR.scoring, // auto-invalidates on model swaps
     resumeVersionId,
     title,
     tags,
@@ -309,7 +310,7 @@ export async function scoreResumeFit(
   try {
     const completion = await serializeGroqCall(() =>
       client().chat.completions.create({
-        model: MODEL,
+        model: MODEL_FOR.scoring,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
           { role: "user", content: user },
@@ -335,7 +336,7 @@ export async function scoreResumeFit(
     const tier = tierFromTotal(total);
     return {
       score: total,
-      details: { ...details, tier },
+      details: { ...details, tier, model: MODEL_FOR.scoring },
       skippedReason: null,
     };
   } catch (err) {
