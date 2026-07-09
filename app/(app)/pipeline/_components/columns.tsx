@@ -1,15 +1,19 @@
 "use client";
 
-import type { ColumnDef, Row } from "@tanstack/react-table";
+import type { ColumnDef, Row, RowData } from "@tanstack/react-table";
 import type { ApplicationRow } from "@/lib/db/applications";
 import type {
   ApplicationStatus,
   RelocationAssistance,
+  ResumeVersion,
   TargetSeason,
   WorkModel,
 } from "@/lib/db/types";
 import { ArrowUpDown, ExternalLink } from "@/components/icons";
-import { updateRoleFieldAction } from "@/app/(app)/app/[id]/actions";
+import {
+  updateResumeVersionAction,
+  updateRoleFieldAction,
+} from "@/app/(app)/app/[id]/actions";
 import { LocationsCell } from "./locations-cell";
 import { RevertButton } from "./revert-button";
 import { TableEnumField, TableTextField } from "./table-cells";
@@ -78,6 +82,13 @@ export interface PipelineRow extends ApplicationRow {
   distance_miles: number | null;
   /** Computed at page-render time from the current profile. Null if no profile. */
   fit_details: FitScore | null;
+}
+
+declare module "@tanstack/react-table" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface TableMeta<TData extends RowData> {
+    resumeVersions: ResumeVersion[];
+  }
 }
 
 /** True iff current value differs from the snapshot's value for that field. */
@@ -456,12 +467,35 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     id: "resume",
     accessorFn: (row) => row.resume_version_id ?? "",
     header: SORT_HEADER("Resume"),
-    cell: ({ row }) =>
-      row.original.resume_version_id ? (
-        <span className="text-xs text-muted-foreground">attached</span>
-      ) : (
-        <span className="text-muted-foreground">—</span>
-      ),
+    cell: ({ row, table }) => {
+      const versions = table.options.meta?.resumeVersions ?? [];
+      if (versions.length === 0) {
+        return (
+          <span className="text-xs text-muted-foreground" title="Upload a resume in Settings">
+            —
+          </span>
+        );
+      }
+      const current = row.original.resume_version_id;
+      const currentLabel = versions.find((v) => v.id === current)?.label;
+      return (
+        <TableEnumField<string>
+          value={current}
+          options={versions.map((v) => ({
+            value: v.id,
+            label: v.is_master ? `${v.label} (master)` : v.label,
+          }))}
+          placeholder="—"
+          renderValue={() => (
+            <span className="truncate text-sm">{currentLabel ?? "—"}</span>
+          )}
+          onSave={async (v) => {
+            const r = await updateResumeVersionAction(row.original.id, v);
+            return r;
+          }}
+        />
+      );
+    },
   },
   // Hidden by default
   {

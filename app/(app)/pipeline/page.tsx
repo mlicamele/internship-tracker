@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { listByTriageState } from "@/lib/db/applications";
 import { getProfile } from "@/lib/db/profile";
+import { listResumeVersions } from "@/lib/db/resume-versions";
 import { weightedNearestDistance } from "@/lib/distance";
 import { computeFitScore } from "@/lib/scoring/fit";
 import { buttonVariants } from "@/components/ui/button";
@@ -20,9 +21,10 @@ export default async function PipelinePage() {
   } = await supabase.auth.getUser();
   if (!user) redirect("/login");
 
-  const [profile, applications] = await Promise.all([
+  const [profile, applications, resumeVersions] = await Promise.all([
     getProfile(supabase, user.id),
     listByTriageState(supabase, user.id, "active"),
+    listResumeVersions(supabase, user.id),
   ]);
 
   const destinations =
@@ -59,6 +61,7 @@ export default async function PipelinePage() {
 
       <PipelineTable
         rows={rows}
+        resumeVersions={resumeVersions}
         emptyState={
           <span>
             No active applications.{" "}

@@ -12,6 +12,7 @@ import {
   getSortedRowModel,
   useReactTable,
 } from "@tanstack/react-table";
+import type { ResumeVersion } from "@/lib/db/types";
 import { cn } from "@/lib/utils";
 import { Eye } from "@/components/icons";
 import {
@@ -31,9 +32,11 @@ const ROLE_COL_MAX_W = 280; // px — max width before role-title wraps
 
 export function PipelineTable({
   rows,
+  resumeVersions,
   emptyState,
 }: {
   rows: PipelineRow[];
+  resumeVersions: ResumeVersion[];
   emptyState?: React.ReactNode;
 }) {
   const [sorting, setSorting] = useState<SortingState>([
@@ -55,6 +58,7 @@ export function PipelineTable({
     getCoreRowModel: getCoreRowModel(),
     getSortedRowModel: getSortedRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
+    meta: { resumeVersions },
   });
 
   const statusColumn = table.getColumn("status");
