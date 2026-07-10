@@ -19,6 +19,13 @@ export type RoleSource = "paste_url" | "scrape_simplify" | "manual" | "capture";
 
 export type TriageState = "draft" | "inbox" | "active" | "snoozed" | "skipped";
 
+/**
+ * Health of a role's jd_url as measured by the nightly link validator.
+ * Separate from `TriageState` so detection facts don't conflate with
+ * user workflow. See lib/db/migrations/0017_link_status.sql.
+ */
+export type LinkStatus = "unknown" | "live" | "dead" | "suspect";
+
 /** Frozen LLM-extraction snapshot stored on a role at creation time. */
 export interface ExtractionSnapshot {
   values: Record<string, unknown>;
@@ -127,6 +134,9 @@ export interface Role {
   // Added in migration 0013
   /** Semantic tags drawn from lib/taxonomy.ts INTEREST_TAGS. LLM emits 1-3 (typical 1-2); used for interest-fit and pipeline filtering. */
   tags: string[];
+  // Added in migration 0017 — nightly link validator writes these.
+  link_status: LinkStatus;
+  link_checked_at: string | null;
   created_at: string;
 }
 

@@ -7,6 +7,7 @@ import { ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { FitScore } from "@/lib/scoring/fit";
 import { ResumeFitDetailsPopover } from "@/components/resume-fit-details-popover";
+import { LinkStatusBadge } from "@/components/link-status-badge";
 import type { ResumeFitDetails } from "@/lib/db/types";
 import {
   RelocationAssistanceCell,
@@ -156,8 +157,12 @@ export function InboxCard({
           href={`/app/${row.id}`}
           className="flex-1 min-w-0 block space-y-1 rounded-sm -mx-1 px-1 py-0.5 hover:bg-muted/40 focus-visible:bg-muted/40 focus:outline-none"
         >
-          <h2 className="text-base font-semibold tracking-tight">
-            {r.company.name}
+          <h2 className="flex flex-wrap items-center gap-2 text-base font-semibold tracking-tight">
+            <span>{r.company.name}</span>
+            <LinkStatusBadge
+              status={r.link_status}
+              checkedAt={r.link_checked_at}
+            />
           </h2>
           <p className="text-sm text-muted-foreground">{r.title}</p>
         </Link>

@@ -16,6 +16,7 @@ import { ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { FitScore } from "@/lib/scoring/fit";
 import { ResumeFitDetailsPopover } from "@/components/resume-fit-details-popover";
+import { LinkStatusBadge } from "@/components/link-status-badge";
 import type { ResumeFitDetails } from "@/lib/db/types";
 import {
   RelocationAssistanceCell,
@@ -329,8 +330,9 @@ function CardContent({
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
-          <h2 className="text-xl font-semibold tracking-tight break-words">
-            {r.company.name}
+          <h2 className="flex flex-wrap items-center gap-2 text-xl font-semibold tracking-tight break-words">
+            <span>{r.company.name}</span>
+            <LinkStatusBadge status={r.link_status} checkedAt={r.link_checked_at} />
           </h2>
           <p className="mt-1 text-sm text-muted-foreground break-words">
             {r.title}

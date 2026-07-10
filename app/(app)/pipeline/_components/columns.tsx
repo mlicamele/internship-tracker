@@ -29,6 +29,7 @@ import type { FitScore } from "@/lib/scoring/fit";
 import { cn } from "@/lib/utils";
 import type { ResumeFitDetails } from "@/lib/db/types";
 import { ResumeFitDetailsPopover } from "@/components/resume-fit-details-popover";
+import { LinkStatusBadge } from "@/components/link-status-badge";
 
 function TagsCell({
   tags,
@@ -238,6 +239,8 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     cell: ({ row }) => {
       const jdUrl = row.original.role.jd_url;
       const name = row.original.role.company.name;
+      const linkStatus = row.original.role.link_status;
+      const linkCheckedAt = row.original.role.link_checked_at;
       return (
         <span className="block h-10 overflow-y-auto whitespace-normal break-words font-medium leading-tight">
           {jdUrl ? (
@@ -253,6 +256,16 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
             </a>
           ) : (
             name
+          )}
+          {(linkStatus === "dead" || linkStatus === "suspect") && (
+            <>
+              {" "}
+              <LinkStatusBadge
+                status={linkStatus}
+                checkedAt={linkCheckedAt}
+                className="align-middle"
+              />
+            </>
           )}
         </span>
       );
