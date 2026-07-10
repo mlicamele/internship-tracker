@@ -44,6 +44,7 @@ next-env.d.ts
 scripts/test-output.txt
 scripts/test-capture-output.txt
 scripts/seed-simplify-output.txt
+scripts/link-check-dry-run.txt
 
 # claude code local state (scheduled tasks lock, per-user settings)
 .claude/

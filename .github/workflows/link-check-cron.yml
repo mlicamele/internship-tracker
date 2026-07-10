@@ -1,0 +1,48 @@
+name: link-check-cron
+
+# Daily poke to the Vercel-hosted /api/cron/validate-links endpoint.
+# Runs 1h after simplify-cron so the day's new ingest gets link-checked
+# same-day. Same rationale as simplify-cron for GH Actions over Vercel
+# Cron (manual re-run, per-run logs, Hobby-tier compatibility).
+#
+# Secrets required (Repo → Settings → Secrets → Actions):
+#   LINK_CHECK_CRON_URL     e.g. https://internship-tracker.vercel.app/api/cron/validate-links
+#   LINK_CHECK_CRON_SECRET  matches the env var of the same name on Vercel
+
+on:
+  schedule:
+    # 11:00 UTC = 07:00 ET (EDT) / 06:00 ET (EST). One hour after simplify-cron.
+    - cron: "0 11 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: link-check-cron
+  cancel-in-progress: false
+
+jobs:
+  poke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: POST to /api/cron/validate-links
+        env:
+          URL: ${{ secrets.LINK_CHECK_CRON_URL }}
+          SECRET: ${{ secrets.LINK_CHECK_CRON_SECRET }}
+        run: |
+          if [ -z "$URL" ] || [ -z "$SECRET" ]; then
+            echo "::error::LINK_CHECK_CRON_URL or LINK_CHECK_CRON_SECRET not configured"
+            exit 1
+          fi
+          echo "POST $URL"
+          response=$(curl -sS -w "\nHTTP_STATUS:%{http_code}\n" \
+            --max-time 90 \
+            -X POST \
+            -H "X-Cron-Secret: $SECRET" \
+            -H "Content-Type: application/json" \
+            "$URL")
+          echo "$response"
+          status=$(echo "$response" | grep -oE 'HTTP_STATUS:[0-9]+' | cut -d: -f2)
+          if [ "$status" != "200" ]; then
+            echo "::error::cron endpoint returned HTTP $status"
+            exit 1
+          fi
