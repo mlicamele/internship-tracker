@@ -56,7 +56,7 @@ export async function triageAction(
   }
 
   await setTriageState(supabase, applicationId, next, snoozeIso);
-  // Effective resume flips (master-only → attached-or-master) when moving
+  // Effective resume flips (main-only → attached-or-main) when moving
   // out of inbox, so the resume-fit hash changes and a rescore is warranted.
   // Non-force + cache-hash means no-ops (e.g. inbox → skipped, then back)
   // don't burn Groq calls. Skipped apps aren't in the rescore-eligible set
@@ -77,8 +77,8 @@ export async function triageAction(
  * Force every inbox app to be scored against a specific resume version.
  * Blocks until the batch finishes so the user sees the fresh scores on
  * the redirect. `resumeVersionId` may be null to fall back to the default
- * (master) triage-scoring behavior — in that case we still rescore against
- * master so scores match the picker's implicit selection.
+ * (main) triage-scoring behavior — in that case we still rescore against
+ * main so scores match the picker's implicit selection.
  */
 export async function setTriageResumeAction(
   resumeVersionId: string | null
@@ -107,18 +107,18 @@ export async function setTriageResumeAction(
       console.error("triage picker rescore failed:", err);
     }
   } else {
-    // Picker cleared — rescore inbox against master (the normal default).
+    // Picker cleared — rescore inbox against main (the normal default).
     const { data } = await supabase
       .from("resume_versions")
       .select("id")
       .eq("user_id", user.id)
-      .eq("is_master", true)
+      .eq("is_main", true)
       .maybeSingle();
     if (data) {
       try {
         await rescoreInboxAgainstResume(supabase, user.id, (data as { id: string }).id);
       } catch (err) {
-        console.error("triage picker master-rescore failed:", err);
+        console.error("triage picker main-rescore failed:", err);
       }
     }
   }
@@ -178,7 +178,7 @@ export async function rescoreUnscoredInboxAction(): Promise<{
 export async function resetToInboxAction(applicationId: string) {
   const { supabase } = await requireOwnedApplication(applicationId);
   await setTriageState(supabase, applicationId, "inbox", null);
-  // Now scoring against master again — rescore.
+  // Now scoring against main again — rescore.
   try {
     await scoreAndPersistResumeFit(supabase, applicationId);
   } catch (err) {

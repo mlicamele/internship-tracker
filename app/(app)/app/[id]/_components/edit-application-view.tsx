@@ -766,7 +766,7 @@ export function EditApplicationView({
                 {resumeVersions.map((r) => (
                   <option key={r.id} value={r.id}>
                     {r.label}
-                    {r.is_master ? " (master)" : ""}
+                    {r.is_main ? " (main)" : ""}
                   </option>
                 ))}
               </select>

@@ -8,7 +8,7 @@ import { setTriageResumeAction } from "../actions";
 /**
  * "Score against" dropdown at the top of /inbox. Picking a resume triggers
  * a batch rescore of every inbox app against that resume, then reloads the
- * page with the fresh scores. Master is the default; picking master clears
+ * page with the fresh scores. Main is the default; picking main clears
  * the URL query param (so bookmarks stay stable).
  *
  * The batch is synchronous on purpose — user waits, then sees the answer.
@@ -18,19 +18,19 @@ import { setTriageResumeAction } from "../actions";
 export function TriageResumePicker({
   versions,
   selectedId,
-  masterId,
+  mainId,
 }: {
   versions: ResumeVersion[];
   selectedId: string | null;
-  masterId: string | null;
+  mainId: string | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [localSelected, setLocalSelected] = useState<string | null>(selectedId);
 
   function onChange(next: string) {
-    const nextId = next === "__master__" ? null : next;
-    setLocalSelected(nextId ?? masterId);
+    const nextId = next === "__main__" ? null : next;
+    setLocalSelected(nextId ?? mainId);
     startTransition(async () => {
       await setTriageResumeAction(nextId);
       // The URL query param captures the intent so a reload picks the same
@@ -43,10 +43,10 @@ export function TriageResumePicker({
     });
   }
 
-  // The <select> value: "__master__" for the default, otherwise the picked id.
+  // The <select> value: "__main__" for the default, otherwise the picked id.
   const selectValue =
-    localSelected == null || localSelected === masterId
-      ? "__master__"
+    localSelected == null || localSelected === mainId
+      ? "__main__"
       : localSelected;
 
   return (
@@ -61,11 +61,11 @@ export function TriageResumePicker({
         disabled={pending}
         className="h-8 rounded-md border border-input bg-background px-2 pr-8 text-xs shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
       >
-        <option value="__master__">
-          {masterLabelFor(versions.find((v) => v.id === masterId) ?? null)}
+        <option value="__main__">
+          {mainLabelFor(versions.find((v) => v.id === mainId) ?? null)}
         </option>
         {versions
-          .filter((v) => v.id !== masterId)
+          .filter((v) => v.id !== mainId)
           .map((v) => (
             <option key={v.id} value={v.id}>
               {v.label}
@@ -81,7 +81,7 @@ export function TriageResumePicker({
   );
 }
 
-function masterLabelFor(master: ResumeVersion | null): string {
-  if (!master) return "No master resume";
-  return `${master.label} (master)`;
+function mainLabelFor(main: ResumeVersion | null): string {
+  if (!main) return "No main resume";
+  return `${main.label} (main)`;
 }

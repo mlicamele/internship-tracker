@@ -661,7 +661,7 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           value={current}
           options={versions.map((v) => ({
             value: v.id,
-            label: v.is_master ? `${v.label} (master)` : v.label,
+            label: v.is_main ? `${v.label} (main)` : v.label,
           }))}
           placeholder="—"
           renderValue={() => (

@@ -155,7 +155,7 @@ export interface ResumeVersion {
   storage_path: string;
   file_size_bytes: number | null;
   uploaded_at: string;
-  is_master: boolean;
+  is_main: boolean;
   // Added in migration 0015
   extracted_text: string | null;
   mime_type: string;

@@ -36,10 +36,10 @@ export default async function InboxPage({
     listResumeVersions(supabase, user.id),
   ]);
 
-  const master = resumeVersions.find((r) => r.is_master) ?? null;
+  const main = resumeVersions.find((r) => r.is_main) ?? null;
   const pickedResume =
     (resumeParam && resumeVersions.find((r) => r.id === resumeParam)) || null;
-  const scoringResumeId = pickedResume?.id ?? master?.id ?? null;
+  const scoringResumeId = pickedResume?.id ?? main?.id ?? null;
 
   const destinations =
     profile?.home_lat != null && profile.home_lng != null
@@ -118,7 +118,7 @@ export default async function InboxPage({
           <TriageResumePicker
             versions={resumeVersions}
             selectedId={scoringResumeId}
-            masterId={master?.id ?? null}
+            mainId={main?.id ?? null}
           />
           <RescoreUnscoredButton
             unscoredCount={

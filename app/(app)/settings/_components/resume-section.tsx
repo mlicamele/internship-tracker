@@ -4,7 +4,7 @@ import { Input } from "@/components/ui/input";
 import {
   uploadResumeAction,
   deleteResumeAction,
-  setMasterResumeAction,
+  setMainResumeAction,
 } from "../resume-actions";
 
 function formatBytes(n: number | null): string {
@@ -82,9 +82,9 @@ export function ResumeSection({
               <div className="min-w-0 flex-1 space-y-0.5">
                 <div className="flex items-center gap-2">
                   <span className="truncate text-sm font-medium">{v.label}</span>
-                  {v.is_master && (
+                  {v.is_main && (
                     <span className="rounded-full border border-primary bg-primary px-2 py-0.5 text-[0.65rem] font-medium text-primary-foreground">
-                      Master
+                      Main
                     </span>
                   )}
                 </div>
@@ -93,11 +93,11 @@ export function ResumeSection({
                 </div>
               </div>
               <div className="flex items-center gap-1">
-                {!v.is_master && (
-                  <form action={setMasterResumeAction}>
+                {!v.is_main && (
+                  <form action={setMainResumeAction}>
                     <input type="hidden" name="id" value={v.id} />
                     <Button type="submit" size="sm" variant="outline">
-                      Set as master
+                      Set as main
                     </Button>
                   </form>
                 )}

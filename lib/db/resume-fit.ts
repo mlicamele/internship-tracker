@@ -262,7 +262,7 @@ async function resolveEffectiveResume(
     .from("resume_versions")
     .select("*")
     .eq("user_id", userId)
-    .eq("is_master", true)
+    .eq("is_main", true)
     .maybeSingle();
   if (error) throw error;
   return (data as ResumeVersion) ?? null;

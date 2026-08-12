@@ -7,7 +7,7 @@ import {
   listResumeVersions,
   createResumeVersion,
   deleteResumeVersion,
-  setMasterResumeVersion,
+  setMainResumeVersion,
 } from "@/lib/db/resume-versions";
 import {
   resumeStoragePath,
@@ -77,7 +77,7 @@ export async function uploadResumeAction(formData: FormData) {
       file_size_bytes: file.size,
       mime_type: "application/pdf",
       extracted_text: text,
-      is_master: isFirst,
+      is_main: isFirst,
     });
   } catch (err) {
     try {
@@ -86,7 +86,7 @@ export async function uploadResumeAction(formData: FormData) {
     fail(err instanceof Error ? err.message : "Could not save resume");
   }
 
-  // First-ever upload auto-promotes to master. Any application without an
+  // First-ever upload auto-promotes to main. Any application without an
   // explicit resume_version_id now resolves to this new resume, so score.
   // Non-throwing — settings save should still succeed on Groq errors.
   if (isFirst) {
@@ -115,8 +115,8 @@ export async function deleteResumeAction(formData: FormData) {
   const target = versions.find((r) => r.id === id);
   if (!target) fail("Resume not found");
 
-  if (target.is_master === true && versions.length > 1) {
-    fail("Set another resume as master before deleting this one");
+  if (target.is_main === true && versions.length > 1) {
+    fail("Set another resume as main before deleting this one");
   }
 
   await deleteResumeVersion(supabase, user.id, id);
@@ -131,7 +131,7 @@ export async function deleteResumeAction(formData: FormData) {
   redirect("/settings?resume_deleted=1");
 }
 
-export async function setMasterResumeAction(formData: FormData) {
+export async function setMainResumeAction(formData: FormData) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -141,13 +141,13 @@ export async function setMasterResumeAction(formData: FormData) {
   const id = formData.get("id");
   if (typeof id !== "string" || !id) fail("Missing id");
 
-  await setMasterResumeVersion(supabase, user.id, id);
+  await setMainResumeVersion(supabase, user.id, id);
 
-  // Apps without an explicit attach now resolve to the new master. Rescore.
+  // Apps without an explicit attach now resolve to the new main. Rescore.
   try {
     await rescoreResumeFitForUserMaster(supabase, user.id);
   } catch (err) {
-    console.error("resume-fit rescore after master swap failed:", err);
+    console.error("resume-fit rescore after main swap failed:", err);
   }
 
   revalidatePath("/settings");
