@@ -41,13 +41,77 @@ const VIRTUAL_LOCATION_TERMS = new Set([
   "usa remote",
   "remote (us)",
   "remote us",
+  "worldwide",
+  "global",
+  "flexible",
+  "hybrid",
+  "onsite",
+  "on-site",
+  "in-office",
+  "tbd",
+  "multiple locations",
+  "various",
+  "various locations",
+  "any location",
 ]);
 
-/** Geocode a free-form address string. Returns null if no match. */
+/**
+ * Keywords that indicate the string is a TEAM / DEPT / ROLE description,
+ * not a geographic location. LLM occasionally emits these when the JD lists
+ * team assignments alongside offices ("Ethics Team", "Trading Engineering",
+ * "US Government Solutions"). Nominatim happily codes these to real places
+ * (e.g. "Ethics Team" → some village), silently breaking distance.
+ *
+ * We only reject when a team-token is present AND the string lacks
+ * location-y structure (comma, state code, country name). That way
+ * a real "New York Research Office" or "Bengaluru, Karnataka" still passes,
+ * but bare "Ethics Team" doesn't.
+ */
+const NON_PLACE_TOKENS = [
+  " team",
+  "department",
+  " dept",
+  " division",
+  " group ",
+  " engineering",
+  " operations",
+  " research",
+  " trading",
+  " solutions",
+  " practice",
+  " unit",
+  " function",
+];
+
+/**
+ * Country names that mark a bare (no-comma) string as a real place.
+ * Deliberately omits "US"/"USA" — those are too common in team names
+ * ("US Government Solutions", "USA Sales") to be reliable hints. Real
+ * US locations almost always have a state code or comma anyway.
+ */
+const LOCATION_HINT = /\b(uk|canada|india|singapore|germany|france|australia|japan|china|brazil|mexico|spain|italy|netherlands|switzerland|ireland|israel)\b/;
+
+/** Trailing 2-letter US state code like ", CA" or " CA". */
+const US_STATE_SUFFIX = /(?:,|\s)[a-z]{2}\s*$/;
+
+export function looksLikeNonPlace(address: string): boolean {
+  const padded = ` ${address.toLowerCase()} `;
+  const hasTeamToken = NON_PLACE_TOKENS.some((t) => padded.includes(t));
+  if (!hasTeamToken) return false;
+  // Location-y structure = comma, state code, or country name → allow through.
+  if (address.includes(",")) return false;
+  if (US_STATE_SUFFIX.test(padded)) return false;
+  if (LOCATION_HINT.test(padded)) return false;
+  return true;
+}
+
+/** Geocode a free-form address string. Returns null if no match or if
+ *  the string is a work-mode / team-name / dept-name (not a real place). */
 export async function geocode(address: string): Promise<LatLng | null> {
   const key = address.trim().toLowerCase();
   if (!key) return null;
   if (VIRTUAL_LOCATION_TERMS.has(key)) return null;
+  if (looksLikeNonPlace(key)) return null;
   if (cache.has(key)) return cache.get(key) ?? null;
 
   const userAgent = process.env.NOMINATIM_USER_AGENT;
@@ -68,12 +132,24 @@ export async function geocode(address: string): Promise<LatLng | null> {
         "Accept-Language": "en-US,en",
       },
     });
-  } catch {
+  } catch (err) {
+    // Network error — Nominatim unreachable. Log so we notice full-service
+    // outages (same silent-fail class as the Scout 404 was).
+    console.warn(
+      `[nominatim-network-error] address="${address}" err=${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
     cache.set(key, null);
     return null;
   }
 
   if (!res.ok) {
+    // 429 / 5xx / 403 → Nominatim throttling or refusing us. Distinct from
+    // 404-ish empty-results (which we handle silently below via empty array).
+    console.warn(
+      `[nominatim-http-error] status=${res.status} address="${address}"`
+    );
     cache.set(key, null);
     return null;
   }

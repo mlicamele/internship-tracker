@@ -26,7 +26,7 @@ export interface EvidenceLayer {
   deadline_at?: string | null;
   work_model?: WorkModel;
   target_year?: number | null;
-  target_season?: TargetSeason;
+  target_season?: TargetSeason | null;
   compensation_text?: string | null;
   /** Raw data from the source for debugging / future use. */
   raw?: Record<string, unknown>;

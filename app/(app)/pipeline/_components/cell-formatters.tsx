@@ -67,10 +67,12 @@ const SEASON_SHORT: Record<TargetSeason, string> = {
 
 export function formatTargetTerm(
   year: number | null,
-  season: TargetSeason
+  season: TargetSeason | null
 ): string {
-  if (!year) return "—";
-  return `${SEASON_SHORT[season]} ${String(year).slice(-2)}`;
+  if (!year && !season) return "—";
+  const y = year ? String(year).slice(-2) : "—";
+  const s = season ? SEASON_SHORT[season] : "—";
+  return `${s} ${y}`;
 }
 
 const WORK_MODEL_LABEL: Record<WorkModel, string> = {

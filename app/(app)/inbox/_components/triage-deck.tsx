@@ -16,6 +16,7 @@ import { ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { FitScore } from "@/lib/scoring/fit";
 import { ResumeFitDetailsPopover } from "@/components/resume-fit-details-popover";
+import { FitDetailsPopover } from "@/components/fit-details-popover";
 import { LinkStatusBadge } from "@/components/link-status-badge";
 import type { ResumeFitDetails } from "@/lib/db/types";
 import {
@@ -522,14 +523,16 @@ function FitBadge({ fit }: { fit: FitScore | null }) {
     ? "bg-destructive/10 text-destructive"
     : scoreBandClasses(pct);
   return (
-    <span
-      className={cn(
-        "shrink-0 rounded px-2 py-0.5 text-xs font-semibold tabular-nums opacity-60",
-        classes
-      )}
-    >
-      Fit {pct}
-    </span>
+    <FitDetailsPopover fit={fit} align="end">
+      <span
+        className={cn(
+          "shrink-0 rounded px-2 py-0.5 text-xs font-semibold tabular-nums opacity-60",
+          classes
+        )}
+      >
+        Fit {pct}
+      </span>
+    </FitDetailsPopover>
   );
 }
 
@@ -550,7 +553,14 @@ function ResumeFitBadge({
         </ResumeFitDetailsPopover>
       );
     }
-    return null;
+    return (
+      <span
+        title="Resume fit not scored yet — set a master resume in Settings or trigger a rescore."
+        className="shrink-0 rounded bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground opacity-60"
+      >
+        Resume —
+      </span>
+    );
   }
   const pct = Math.round(score);
   return (

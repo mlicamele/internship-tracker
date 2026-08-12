@@ -17,6 +17,10 @@ export interface ProfileUpdate {
   fit_weight_class_year?: number;
   fit_weight_distance?: number;
   fit_weight_interest?: number;
+  fit_dist_tier_score_commutable?: number | null;
+  fit_dist_tier_score_regional?: number | null;
+  fit_dist_tier_score_domestic?: number | null;
+  fit_dist_tier_score_distant?: number | null;
 }
 
 export async function getProfile(

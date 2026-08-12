@@ -150,7 +150,7 @@ export async function createApplicationFromUrl(
     postedAt: extracted?.posted_at ?? null,
     workModel: extracted?.work_model ?? null,
     targetYear,
-    targetSeason: extracted?.target_season ?? "summer",
+    targetSeason: extracted?.target_season ?? null,
     compensationHourlyDollars: extracted?.compensation_hourly_dollars ?? null,
     minGradYear: extracted?.min_grad_year ?? null,
     maxGradYear: extracted?.max_grad_year ?? null,

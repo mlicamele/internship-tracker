@@ -15,7 +15,7 @@ import {
   updateRoleFieldAction,
 } from "@/app/(app)/app/[id]/actions";
 import { LocationsCell } from "./locations-cell";
-import { RevertButton } from "./revert-button";
+import { RevertButton, type RoleEditableField } from "./revert-button";
 import { TableEnumField, TableTextField } from "./table-cells";
 import {
   RelocationAssistanceCell,
@@ -29,6 +29,7 @@ import type { FitScore } from "@/lib/scoring/fit";
 import { cn } from "@/lib/utils";
 import type { ResumeFitDetails } from "@/lib/db/types";
 import { ResumeFitDetailsPopover } from "@/components/resume-fit-details-popover";
+import { FitDetailsPopover } from "@/components/fit-details-popover";
 import { LinkStatusBadge } from "@/components/link-status-badge";
 
 function TagsCell({
@@ -143,23 +144,20 @@ function FitCell({ fit }: { fit: FitScore | null }) {
     return <span className="text-xs text-muted-foreground">—</span>;
   }
   const pct = Math.round(fit.total * 100);
-  // Ineligibility is a distinct visual state that survives the dim-vs-hero treatment.
   const classes = fit.ineligible
     ? "bg-destructive/10 text-destructive"
     : scoreBandClasses(pct);
-  const tooltip = fit.ineligible
-    ? `Ineligible (class-year). Distance ${fit.components.distance.toFixed(2)} · interest ${fit.components.interest.toFixed(2)}`
-    : `class-year ${fit.components.classYear.toFixed(2)} × ${fit.weights.classYear} + distance ${fit.components.distance.toFixed(2)} × ${fit.weights.distance} + interest ${fit.components.interest.toFixed(2)} × ${fit.weights.interest}`;
   return (
-    <span
-      title={tooltip}
-      className={cn(
-        "inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 text-center text-xs font-medium tabular-nums opacity-60",
-        classes
-      )}
-    >
-      {pct}
-    </span>
+    <FitDetailsPopover fit={fit}>
+      <span
+        className={cn(
+          "inline-block min-w-[2.5rem] rounded px-1.5 py-0.5 text-center text-xs font-medium tabular-nums opacity-60",
+          classes
+        )}
+      >
+        {pct}
+      </span>
+    </FitDetailsPopover>
   );
 }
 
@@ -182,7 +180,13 @@ declare module "@tanstack/react-table" {
   }
 }
 
-/** True iff current value differs from the snapshot's value for that field. */
+/**
+ * True iff current value differs from the snapshot AND the revert would be
+ * *restorative* (not destructive). If the snapshot value is null/empty and
+ * the current value is populated, the revert would clear a good value —
+ * so we hide the button instead. The user can always manually clear if they
+ * want; the revert affordance is for restoring the LLM's extraction.
+ */
 function isDirty(row: PipelineRow, field: string, current: unknown): boolean {
   const snap = (row.role.extraction_snapshot?.values ?? {}) as Record<
     string,
@@ -190,20 +194,38 @@ function isDirty(row: PipelineRow, field: string, current: unknown): boolean {
   >;
   if (!(field in snap)) return false;
   const snapVal = snap[field];
+
   // Locations: snapshot is string[] of texts, current is RoleLocation[]
   if (field === "locations") {
     const currentTexts = Array.isArray(current)
       ? (current as { text: string }[]).map((l) => l.text)
       : [];
     const snapTexts = Array.isArray(snapVal) ? (snapVal as string[]) : [];
+    if (snapTexts.length === 0 && currentTexts.length > 0) return false;
     return JSON.stringify(currentTexts) !== JSON.stringify(snapTexts);
   }
+
+  // Tags: same shape (array), same destructive-revert guard.
+  if (field === "tags") {
+    const snapTags = Array.isArray(snapVal) ? (snapVal as string[]) : [];
+    const currentTags = Array.isArray(current) ? (current as string[]) : [];
+    if (snapTags.length === 0 && currentTags.length > 0) return false;
+    return JSON.stringify(currentTags) !== JSON.stringify(snapTags);
+  }
+
   // Dates: compare just YYYY-MM-DD (Postgres timestamps may add seconds)
   if (field === "deadline_at" || field === "posted_at") {
     const a = typeof current === "string" ? current.slice(0, 10) : current;
     const b = typeof snapVal === "string" ? snapVal.slice(0, 10) : snapVal;
+    if (b == null && a != null) return false;
     return a !== b;
   }
+
+  // Scalar fields: hide revert when snapshot is null/empty and current is populated.
+  const currentEmpty =
+    current == null || current === "" || current === undefined;
+  const snapEmpty = snapVal == null || snapVal === "";
+  if (snapEmpty && !currentEmpty) return false;
   return snapVal !== current;
 }
 
@@ -348,44 +370,47 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
     id: "target",
     accessorFn: (row) => row.role.target_year ?? 0,
     header: SORT_HEADER("Target"),
-    cell: ({ row }) => (
-      <span className="inline-flex items-center gap-0">
-        <TableTextField
-          type="number"
-          min={2024}
-          max={2032}
-          value={row.original.role.target_year ? String(row.original.role.target_year) : ""}
-          onSave={(v) => updateRoleFieldAction(row.original.id, "target_year", v)}
-          inputClassName="w-10 text-right"
-          placeholder="—"
-        />
-        <RevertButton
-          applicationId={row.original.id}
-          field="target_year"
-          visible={isDirty(row.original, "target_year", row.original.role.target_year)}
-        />
-        <TableEnumField<TargetSeason>
-          value={row.original.role.target_season}
-          options={[
-            { value: "summer", label: "Summer" },
-            { value: "fall", label: "Fall" },
-            { value: "winter", label: "Winter" },
-            { value: "spring", label: "Spring" },
-          ]}
-          renderValue={(v) => (
-            <span className="capitalize text-muted-foreground">{v}</span>
-          )}
-          onSave={(v) =>
-            updateRoleFieldAction(row.original.id, "target_season", v ?? "summer")
-          }
-        />
-        <RevertButton
-          applicationId={row.original.id}
-          field="target_season"
-          visible={isDirty(row.original, "target_season", row.original.role.target_season)}
-        />
-      </span>
-    ),
+    cell: ({ row }) => {
+      const yearDirty = isDirty(row.original, "target_year", row.original.role.target_year);
+      const seasonDirty = isDirty(row.original, "target_season", row.original.role.target_season);
+      // Only include fields that are ACTUALLY dirty in the joint revert —
+      // otherwise a season-only edit would also wipe a good defaulted year.
+      const dirtyFields: RoleEditableField[] = [];
+      if (seasonDirty) dirtyFields.push("target_season");
+      if (yearDirty) dirtyFields.push("target_year");
+      return (
+        <span className="inline-flex items-center gap-1">
+          <TableEnumField<TargetSeason>
+            value={row.original.role.target_season}
+            options={[
+              { value: "summer", label: "Summer" },
+              { value: "fall", label: "Fall" },
+              { value: "winter", label: "Winter" },
+              { value: "spring", label: "Spring" },
+            ]}
+            placeholder="—"
+            renderValue={(v) => <span className="capitalize">{v}</span>}
+            onSave={(v) =>
+              updateRoleFieldAction(row.original.id, "target_season", v ?? "")
+            }
+          />
+          <TableTextField
+            type="number"
+            min={2024}
+            max={2032}
+            value={row.original.role.target_year ? String(row.original.role.target_year) : ""}
+            onSave={(v) => updateRoleFieldAction(row.original.id, "target_year", v)}
+            inputClassName="w-14 text-center"
+            placeholder="—"
+          />
+          <RevertButton
+            applicationId={row.original.id}
+            fields={dirtyFields}
+            visible={dirtyFields.length > 0}
+          />
+        </span>
+      );
+    },
   },
   {
     id: "deadline",
@@ -404,6 +429,27 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
           applicationId={row.original.id}
           field="deadline_at"
           visible={isDirty(row.original, "deadline_at", row.original.role.deadline_at)}
+        />
+      </span>
+    ),
+  },
+  {
+    id: "posted",
+    accessorFn: (row) =>
+      row.role.posted_at ? new Date(row.role.posted_at).getTime() : 0,
+    header: SORT_HEADER("Posted"),
+    cell: ({ row }) => (
+      <span className="inline-flex items-center gap-0">
+        <TableTextField
+          type="date"
+          value={row.original.role.posted_at ? row.original.role.posted_at.slice(0, 10) : ""}
+          onSave={(v) => updateRoleFieldAction(row.original.id, "posted_at", v)}
+          inputClassName="w-32"
+        />
+        <RevertButton
+          applicationId={row.original.id}
+          field="posted_at"
+          visible={isDirty(row.original, "posted_at", row.original.role.posted_at)}
         />
       </span>
     ),
@@ -631,13 +677,6 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
   },
   // Hidden by default
   {
-    id: "posted",
-    accessorFn: (row) =>
-      row.role.posted_at ? new Date(row.role.posted_at).getTime() : 0,
-    header: SORT_HEADER("Posted"),
-    cell: ({ row }) => formatDate(row.original.role.posted_at),
-  },
-  {
     id: "created",
     accessorFn: (row) => new Date(row.created_at).getTime(),
     header: SORT_HEADER("Created"),
@@ -653,7 +692,6 @@ export const pipelineColumns: ColumnDef<PipelineRow>[] = [
 
 /** Columns hidden by default (toggleable via Columns menu). */
 export const DEFAULT_HIDDEN_COLUMNS = {
-  posted: false,
   created: false,
   source: false,
 };

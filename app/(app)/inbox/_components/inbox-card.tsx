@@ -7,6 +7,7 @@ import { ExternalLink } from "@/components/icons";
 import { cn } from "@/lib/utils";
 import type { FitScore } from "@/lib/scoring/fit";
 import { ResumeFitDetailsPopover } from "@/components/resume-fit-details-popover";
+import { FitDetailsPopover } from "@/components/fit-details-popover";
 import { LinkStatusBadge } from "@/components/link-status-badge";
 import type { ResumeFitDetails } from "@/lib/db/types";
 import {
@@ -34,19 +35,17 @@ function FitBadge({ fit }: { fit: FitScore | null }) {
   const classes = fit.ineligible
     ? "bg-destructive/10 text-destructive"
     : scoreBandClasses(pct);
-  const tooltip = fit.ineligible
-    ? `Ineligible on class-year. Distance ${fit.components.distance.toFixed(2)} · interest ${fit.components.interest.toFixed(2)}`
-    : `class-year ${fit.components.classYear.toFixed(2)} × ${fit.weights.classYear} + distance ${fit.components.distance.toFixed(2)} × ${fit.weights.distance} + interest ${fit.components.interest.toFixed(2)} × ${fit.weights.interest}`;
   return (
-    <span
-      title={tooltip}
-      className={cn(
-        "shrink-0 rounded px-1.5 py-1 text-xs font-medium tabular-nums opacity-60",
-        classes
-      )}
-    >
-      Fit {pct}
-    </span>
+    <FitDetailsPopover fit={fit} align="end">
+      <span
+        className={cn(
+          "shrink-0 rounded px-1.5 py-1 text-xs font-medium tabular-nums opacity-60",
+          classes
+        )}
+      >
+        Fit {pct}
+      </span>
+    </FitDetailsPopover>
   );
 }
 
@@ -67,7 +66,14 @@ function ResumeFitBadge({
         </ResumeFitDetailsPopover>
       );
     }
-    return null;
+    return (
+      <span
+        title="Resume fit not scored yet — set a master resume in Settings or trigger a rescore."
+        className="shrink-0 rounded bg-muted px-1.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground opacity-60"
+      >
+        Resume —
+      </span>
+    );
   }
   const pct = Math.round(score);
   return (

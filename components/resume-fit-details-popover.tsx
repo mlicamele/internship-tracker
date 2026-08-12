@@ -92,7 +92,7 @@ export function ResumeFitDetailsPopover({
         >
           <div
             role="tooltip"
-            className="w-80 space-y-2 rounded-md border border-border bg-popover p-3 text-xs text-popover-foreground shadow-md"
+            className="w-80 max-w-[calc(100vw-2rem)] space-y-2 whitespace-normal break-words rounded-md border border-border bg-popover p-3 text-xs text-popover-foreground shadow-md [overflow-wrap:anywhere]"
           >
           <div className="flex items-baseline justify-between border-b border-border/60 pb-1.5">
             <span className="text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
@@ -188,12 +188,12 @@ function CategoryRow({
 }) {
   return (
     <div className="space-y-0.5">
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium">
+      <div className="flex items-start justify-between gap-2">
+        <span className="shrink-0 text-[11px] font-medium">
           {RUBRIC_CATEGORY_LABELS[category]}
         </span>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-muted-foreground">
+        <div className="flex min-w-0 flex-1 items-start justify-end gap-1.5">
+          <span className="min-w-0 text-right text-[10px] leading-snug text-muted-foreground">
             {RUBRIC_ANCHORS[category][grade]}
           </span>
           <GradeBadge category={category} grade={grade} />

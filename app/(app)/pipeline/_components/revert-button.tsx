@@ -18,23 +18,30 @@ type RoleEditableField = Parameters<typeof revertRoleFieldAction>[1];
 export function RevertButton({
   applicationId,
   field,
+  fields,
   visible = true,
 }: {
   applicationId: string;
-  field: RoleEditableField;
+  /** Single field to revert. Use `fields` for a joint revert (e.g. target_year + target_season). */
+  field?: RoleEditableField;
+  /** Multi-field revert — takes precedence over `field` when provided. Reverts each sequentially. */
+  fields?: RoleEditableField[];
   visible?: boolean;
 }) {
   const [pending, start] = useTransition();
+  const targets = fields ?? (field ? [field] : []);
   return (
     <button
       type="button"
       tabIndex={visible ? 0 : -1}
       aria-hidden={!visible}
       onClick={(e) => {
-        if (!visible) return;
+        if (!visible || targets.length === 0) return;
         e.stopPropagation();
         start(async () => {
-          await revertRoleFieldAction(applicationId, field);
+          for (const f of targets) {
+            await revertRoleFieldAction(applicationId, f);
+          }
         });
       }}
       disabled={pending || !visible}

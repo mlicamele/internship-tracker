@@ -13,6 +13,7 @@ import { cn } from "@/lib/utils";
 import type { PipelineRow } from "../pipeline/_components/columns";
 import { InboxViewSwitcher } from "./_components/inbox-view-switcher";
 import { TriageResumePicker } from "./_components/triage-resume-picker";
+import { RescoreUnscoredButton } from "./_components/rescore-unscored-button";
 
 export const dynamic = "force-dynamic";
 
@@ -103,11 +104,18 @@ export default async function InboxPage({
       </header>
 
       {resumeVersions.length > 0 && (
-        <TriageResumePicker
-          versions={resumeVersions}
-          selectedId={scoringResumeId}
-          masterId={master?.id ?? null}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <TriageResumePicker
+            versions={resumeVersions}
+            selectedId={scoringResumeId}
+            masterId={master?.id ?? null}
+          />
+          <RescoreUnscoredButton
+            unscoredCount={
+              rows.filter((r) => r.resume_fit_scored_at == null).length
+            }
+          />
+        </div>
       )}
 
       {rows.length === 0 ? (

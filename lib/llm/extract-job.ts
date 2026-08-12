@@ -15,7 +15,14 @@ import type {
 } from "@/lib/db/types";
 import { INTEREST_TAGS, normalizeTags } from "@/lib/taxonomy";
 import { MODEL_FOR } from "./model";
-import { serializeGroqCall, isRateLimitError } from "./rate-limiter";
+import {
+  serializeGroqCall,
+  isRateLimitError,
+  parseRateLimit,
+  formatRateLimit,
+  recordTokenUsage,
+} from "./rate-limiter";
+import { MODEL_TPD } from "./limits";
 
 export interface ExtractedJob {
   company: string | null;
@@ -28,7 +35,8 @@ export interface ExtractedJob {
   posted_at: string | null;
   work_model: WorkModel | null;
   target_year: number | null;
-  target_season: TargetSeason;
+  /** Null when the JD doesn't state a season. Do NOT default to "summer" — see migration 0018. */
+  target_season: TargetSeason | null;
   /** Earliest graduation year still eligible (e.g. "Dec 2027 or later" → 2027). Null if no lower bound. */
   min_grad_year: number | null;
   /** Latest graduation year still eligible (e.g. "rising junior+" for SS27 → 2029). Null if no upper bound. */
@@ -54,7 +62,7 @@ const SAFE_DEFAULT: ExtractedJob = {
   posted_at: null,
   work_model: null,
   target_year: null,
-  target_season: "summer",
+  target_season: null,
   min_grad_year: null,
   max_grad_year: null,
   relocation_assistance: null,
@@ -84,7 +92,7 @@ OUTPUT STRICT JSON ONLY — no markdown, no prose, no code fence. Match this exa
   "posted_at": string | null,             // ISO 8601
   "work_model": "remote" | "hybrid" | "onsite" | null,
   "target_year": integer | null,           // e.g. 2027
-  "target_season": "summer" | "fall" | "winter" | "spring",
+  "target_season": "summer" | "fall" | "winter" | "spring" | null,
   "min_grad_year": integer | null,         // EARLIEST grad year still eligible; null if no lower bound stated
   "max_grad_year": integer | null,         // LATEST grad year still eligible; null if no upper bound stated
   "relocation_assistance": "provided" | "not_provided" | null,
@@ -111,7 +119,13 @@ OUTPUT STRICT JSON ONLY — no markdown, no prose, no code fence. Match this exa
 Rules:
 - company: hiring organization name. Prefer JSON-LD hiringOrganization.name. Capitalize properly ("anthropic" → "Anthropic"). NOT the job board name.
 - title: role title only, no company prefix. "Software Engineer Intern" not "Anthropic - SWE Intern".
-- locations: ARRAY of distinct locations the role is listed for. Each item is a short readable string like "San Francisco, CA" or "London, UK" or "Remote". When a JD lists multiple cities (common for quant roles, big tech multi-office postings), include each as a separate array element — do NOT join them with semicolons or " · ". Order does not matter. If the role is remote, use ["Remote"]. If location is unknown, use an empty array [].
+- locations: ARRAY of distinct GEOGRAPHIC locations the role is listed for. Each item is a short readable string in "City, State" or "City, Country" format ("San Francisco, CA", "London, UK", "Remote"). When a JD lists multiple cities (common for quant roles, big-tech multi-office postings), include each as a separate array element — do NOT join with semicolons or " · ". Order does not matter. Remote → ["Remote"]. Unknown → [].
+
+  CRITICAL — REJECT non-geographic strings. Do NOT emit team names, department names, division names, or program names as locations. These break downstream geocoding (the app tries to compute distance from home and Nominatim will happily code "Ethics Team" to some random village).
+    * BAD (do NOT include): "Ethics Team", "Trading Engineering", "US Government Solutions", "Perception Research", "Data Science Group", "Firmware Division", "Multiple Locations", "TBD", "Various"
+    * GOOD: "San Francisco, CA", "New York, NY", "Bengaluru, India", "London, UK", "Remote"
+    * If the JD lists BOTH a team AND a city ("Trading Engineering — Chicago, IL"), extract only the CITY: "Chicago, IL".
+    * If the JD ONLY has vague team/department labels and no real city, return [] and let the user fill it in.
 - jd_body: clean plain text. Strip HTML. Preserve paragraphs + bullets. Empty string if unknown.
 - min_grad_year / max_grad_year: STRICT. Two INDEPENDENT eligibility bounds on the candidate's graduation year. Read very carefully — "or later" vs "or earlier" is the difference between min and max, and reversing them silently breaks filtering.
 
@@ -142,21 +156,58 @@ Rules:
     * "or earlier" / "by" / "no later than" / "before" → it's a max_grad_year (UPPER bound)
     * "between X and Y" / "class of X or Y" → BOTH bounds; X is min, Y is max
 
-  DO NOT INFER from weak context like "Summer 2027 Intern" alone, "CS student", or job seniority. If the JD doesn't explicitly state eligibility via grad year OR class year, return null for BOTH bounds. Prefer null over a guess.
+  ADDITIONAL SIGNAL PATTERNS to catch (previously under-extracted):
+    * "must be enrolled through [date/year]" → sets max_grad_year to that year (student must not have graduated yet)
+    * "must be currently enrolled in a degree program returning to school after the internship" (target_year=Y) → max_grad_year = Y + 1 at minimum (returning student means grad after Y)
+    * "expected to graduate in YYYY" → BOTH min and max = YYYY (a specific class year)
+    * "graduating [month] YYYY" or "graduates [semester] YYYY" without direction → BOTH min and max = YYYY (specific class year)
+    * "graduating spring/fall/summer YYYY" → BOTH = YYYY
+    * "penultimate year", "final year" (target_year=Y) → penultimate = grad Y+1; final = grad Y
+    * "junior year" (target_year=Y) → grad Y+1
+    * "sophomore year" (target_year=Y) → grad Y+2
+    * "senior year" (target_year=Y) → grad Y
+    * "rising [class]" (target_year=Y): rising sophomore → grad Y+3, rising junior → Y+2, rising senior → Y+1
+    * "returning to school after internship" without more specificity (target_year=Y) → max = Y + 1 (at least one more year of school)
+
+  DO NOT INFER from very weak context like "Summer 2027 Intern" title alone, "CS student", or vague seniority. But DO extract when the JD says "returning student", "enrolled through", "expected graduation", "final year", or names a class year — those are legitimate signals. When in doubt between "medium" and "low" confidence: prefer emitting the value with "medium" — the user can revert or edit; null gives them nothing to work with.
 - confidences: emit a confidence TIER ONLY for fields where you produced a real, non-null value. If a field is null, omit its key from the confidences object — DO NOT emit any tier (not even "low") for null/missing fields. The confidences object should be SHORTER for thin JDs, not the same length with all "low" values. Three valid values:
     * "high"   — pulled directly from a clearly-labeled structured source (JSON-LD field, board-API field) OR an unambiguous explicit statement in the JD prose
     * "medium" — stated in prose with some interpretation needed (e.g. multiple candidate values, geo-specific pay range, derived from "rising junior" + target_year)
     * "low"    — weak inference. If you would have rated lower than this, return null for the field itself and OMIT the confidence key.
   Concrete: if compensation_hourly_dollars is null, then "compensation_hourly_dollars" MUST NOT appear in confidences. Same for every other field.
 - relocation_assistance: does the company SUPPORT the candidate moving for the role?
-    * "Relocation assistance provided" / "we will help you relocate" / "housing stipend" / "corporate housing" / "relocation reimbursement" / "visa sponsorship for relocation" → "provided"
-    * "Local candidates only" / "no relocation assistance" / "must already reside in X" → "not_provided"
-    * Remote roles where no relocation is needed → null (it's irrelevant, not "not_provided")
-    * If not mentioned → null
+    * PROVIDED signals — extract "provided":
+      - Explicit: "Relocation assistance provided" / "we will help you relocate" / "relocation reimbursement" / "relocation package"
+      - Housing: "housing stipend" / "corporate housing" / "housing provided" / "furnished apartment"
+      - Visa: "visa sponsorship" / "H1B sponsorship" / "will sponsor work visas" (for U.S. roles this strongly implies willingness to relocate an international hire)
+      - Travel: "travel reimbursement to/from the internship" / "one-time relocation stipend"
+      - Interns from any location: "we welcome applicants from any location" / "no relocation required" (in an ONSITE role, this implies relocation help)
+    * NOT_PROVIDED signals — extract "not_provided":
+      - Explicit: "no relocation assistance" / "relocation not provided" / "must arrange own housing"
+      - Geographic restriction: "Local candidates only" / "must already reside in [city/state/country]" / "must be able to commute daily to [office]"
+      - Work-auth restriction on ONSITE role: "must be authorized to work in [country] without visa sponsorship" implies they won't help international candidates relocate
+    * Remote roles where relocation is meaningless → null (not "not_provided" — the field is irrelevant)
+    * Not mentioned at all → null
 - target_year: year the internship runs. "Summer 2027 SWE Intern" → 2027. Null if unstated.
-- target_season: "summer" default (most common). Only other if explicit.
+- target_season: null when the JD/URL does NOT clearly state a season. DO NOT DEFAULT TO "summer" — null is the honest signal that no season was mentioned. Populate ONLY when there is direct evidence:
+    * Title/URL contains an explicit season word — "Summer 2027 SWE Intern" → "summer"; "Fall 2026 Co-op" → "fall"; "/careers/spring-2027-internship" URL path → "spring"; "Winter 2025 Externship" → "winter"
+    * JD body directly says the program's season — "The 12-week Summer 2027 program runs June-August" → "summer"; "Fall semester internship, September-December" → "fall"
+    * Month range that unambiguously indicates a season without any other season claim — "June to August" → "summer"; "September through December" → "fall"; "January-April" → "spring"; "December-February" → "winter"
+  Do NOT infer a season from:
+    * The company being tech / the role being SWE (weak, no signal)
+    * "Internship" alone with no dates
+    * A due date / posted date (irrelevant to program season)
+    * The fact that summer is common (that's an app-level assumption, not evidence)
+  When in doubt: return null. The UI now surfaces null as "—", which is honest and lets the user fix it explicitly.
 - work_model: "remote" only if explicitly stated remote (NOT "no remote"). "hybrid" for mixed. "onsite" / "in-office" otherwise. null if not mentioned.
-- deadline_at / posted_at: ISO 8601 string. Only date → "YYYY-MM-DDT00:00:00Z". Unknown → null.
+- deadline_at: application close date. ISO 8601 → "YYYY-MM-DDT00:00:00Z". Look HARD for these signals (this field is historically under-extracted):
+    * Explicit: "Apply by [date]" / "Application deadline: [date]" / "Applications close [date]" / "Submissions must be received by [date]" / "Deadline to apply: [date]"
+    * Framed as "priority" or "rolling": "Priority deadline [date]" (use that date), "Rolling review through [date]" (use that date). If ONLY "rolling" with no date → null.
+    * Section headers: "How to Apply", "Application Timeline", "Timeline" often contain the deadline in the paragraph beneath.
+    * From JSON-LD: the validThrough field is the canonical deadline — always prefer this when present.
+    * Distinguish deadline_at from posted_at — "posted [date]" or JSON-LD datePosted is posted_at, NOT deadline_at.
+    * Unknown → null.
+- posted_at: date the JD was made public. ISO 8601. From JSON-LD datePosted, board API created_at, or explicit "Posted on [date]" text. Unknown → null.
 - compensation_hourly_dollars: whole-dollar hourly rate as an integer. SOURCE RULE: if a "Compensation context" section is provided, use ONLY that section as your source for compensation — do NOT pull dollar figures from the jd_body, htmlExcerpt, or anywhere else. The comp-context windows were extracted specifically because they contain pay-keywords + dollar figures; numbers elsewhere in the page (revenue figures, customer counts, "22+ million customers", market sizes, AUM, etc.) are NOT compensation. If NO Compensation context is provided, then you may fall back to scanning the JD body for explicit pay statements.
   VERIFY relevance: within the Compensation context, check each figure refers to THIS role, not a different one. Same-page sidebars, "Related Openings", "Other Programs", "PEAK6 Trials", residency/founder/fellowship listings, or any pay number tied to a DIFFERENT job title than the one we're extracting → IGNORE. If the context is ambiguous or you can't tell which role the pay applies to, return null.
 
@@ -192,6 +243,7 @@ Rules:
   ${INTEREST_TAGS.join(", ")}
 
   RULES:
+    * TITLE + COMPANY IS ENOUGH SIGNAL. If the title is clearly a Quant / SWE / ML / Full-Stack / etc. role, TAG IT even when the body is thin, missing, or a careers-index blob. A hedge fund + "Quantitative Developer" is ["Quant", "Fintech"]. Do NOT return [] just because the body is weak. Empty [] is only correct when NEITHER title NOR company gives ANY signal (which is rare — most postings have a role-descriptive title).
     * One ROLE-TYPE tag (SWE / Web/Frontend / Quant / ML/AI / Full-Stack / …) is usually enough. Only add more if the role clearly spans domains.
     * Prefer SPECIFIC over GENERIC. If "Computer Vision" applies, do NOT also add "ML/AI"; "Web/Frontend" alone beats "SWE" + "Web/Frontend".
     * Add ONE INDUSTRY tag only when the company's domain is a strong, defining theme (Recursion → "Biotech", Anduril → "Defense/Aerospace", any hedge fund + Quant role → "Fintech"). Skip industry when not central.
@@ -314,6 +366,17 @@ export async function extractJobFromEvidence(
       })
     );
 
+    // Feed token usage to the tracker so we get an 80%-TPD warning
+    // before the next call gets 429'd. Silently no-op if the SDK ever
+    // stops returning `.usage`.
+    if (completion.usage?.total_tokens) {
+      recordTokenUsage(
+        MODEL_FOR.extraction,
+        completion.usage.total_tokens,
+        MODEL_TPD[MODEL_FOR.extraction]
+      );
+    }
+
     const text = completion.choices[0]?.message?.content;
     if (!text) {
       return { ...SAFE_DEFAULT, jd_url: input.url, notes: "empty response" };
@@ -340,9 +403,11 @@ export async function extractJobFromEvidence(
         ? (parsed.work_model as WorkModel)
         : null,
       target_year: parseTargetYear(parsed.target_year),
+      // Null when the LLM didn't emit a valid season — see migration 0018.
+      // The UI renders null as "—" so extraction gaps are visible, not masked.
       target_season: TARGET_SEASON_VALUES.has(parsed.target_season as string)
         ? (parsed.target_season as TargetSeason)
-        : "summer",
+        : null,
       min_grad_year: parseGradYear(parsed.min_grad_year),
       max_grad_year: parseGradYear(parsed.max_grad_year),
       // NOTE: min/max are re-validated below via sanityCheckGradYears
@@ -380,7 +445,7 @@ export async function extractJobFromEvidence(
   } catch (err) {
     if (isRateLimitError(err)) {
       console.warn(
-        `[groq-rate-limit] extractJobFromEvidence: ${err instanceof Error ? err.message : "429"}`
+        `[groq-rate-limit] extractJobFromEvidence: ${formatRateLimit(parseRateLimit(err))}`
       );
     }
     return {
@@ -597,6 +662,13 @@ export async function classifyRoleTags(
         response_format: { type: "json_object" },
       })
     );
+    if (completion.usage?.total_tokens) {
+      recordTokenUsage(
+        MODEL_FOR.classification,
+        completion.usage.total_tokens,
+        MODEL_TPD[MODEL_FOR.classification]
+      );
+    }
     const text = completion.choices[0]?.message?.content;
     if (!text) return [];
     const match = text.match(/\{[\s\S]*\}/);
@@ -606,7 +678,7 @@ export async function classifyRoleTags(
   } catch (err) {
     if (isRateLimitError(err)) {
       console.warn(
-        `[groq-rate-limit] classifyRoleTags: ${err instanceof Error ? err.message : "429"}`
+        `[groq-rate-limit] classifyRoleTags: ${formatRateLimit(parseRateLimit(err))}`
       );
     }
     return [];

@@ -30,7 +30,14 @@ import type {
   RubricGrade,
 } from "@/lib/db/types";
 import { MODEL_FOR } from "@/lib/llm/model";
-import { isRateLimitError, serializeGroqCall } from "@/lib/llm/rate-limiter";
+import {
+  formatRateLimit,
+  isRateLimitError,
+  parseRateLimit,
+  recordTokenUsage,
+  serializeGroqCall,
+} from "@/lib/llm/rate-limiter";
+import { MODEL_TPD } from "@/lib/llm/limits";
 
 const MAX_JD_CHARS = 6000;
 const MAX_RESUME_CHARS = 6000;
@@ -321,6 +328,14 @@ export async function scoreResumeFit(
       })
     );
 
+    if (completion.usage?.total_tokens) {
+      recordTokenUsage(
+        MODEL_FOR.scoring,
+        completion.usage.total_tokens,
+        MODEL_TPD[MODEL_FOR.scoring]
+      );
+    }
+
     const raw = completion.choices[0]?.message?.content ?? "";
     const parsed = extractJsonObject(raw);
     if (!parsed) {
@@ -342,9 +357,7 @@ export async function scoreResumeFit(
   } catch (err) {
     if (isRateLimitError(err)) {
       console.warn(
-        `[groq-rate-limit] scoreResumeFit: ${
-          err instanceof Error ? err.message : "429"
-        }`
+        `[groq-rate-limit] scoreResumeFit: ${formatRateLimit(parseRateLimit(err))}`
       );
     } else {
       console.warn(

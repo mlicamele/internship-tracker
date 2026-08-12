@@ -26,17 +26,13 @@ export interface CreateRoleInput {
   source: RoleSource;
   sourceExternalId?: string | null;
   targetYear?: number | null;
-  targetSeason?: TargetSeason;
+  targetSeason?: TargetSeason | null;
   workModel?: WorkModel | null;
   compensationHourlyDollars?: number | null;
   tags?: string[];
   extractionConfidences?: Record<string, ConfidenceTier>;
   extractionSnapshot?: ExtractionSnapshot;
 }
-
-const ROLE_INSERT_DEFAULTS = {
-  target_season: "summer" as TargetSeason,
-};
 
 export async function create(
   supabase: SupabaseClient,
@@ -59,7 +55,9 @@ export async function create(
       source: input.source,
       source_external_id: input.sourceExternalId ?? null,
       target_year: input.targetYear ?? null,
-      target_season: input.targetSeason ?? ROLE_INSERT_DEFAULTS.target_season,
+      // No fallback — null is the honest state when neither the LLM nor the user
+      // has said which season. Migration 0018 dropped the DB default.
+      target_season: input.targetSeason ?? null,
       work_model: input.workModel ?? null,
       compensation_hourly_dollars: input.compensationHourlyDollars ?? null,
       tags: input.tags ?? [],
@@ -84,7 +82,7 @@ export type RoleUpdate = Partial<{
   max_grad_year: number | null;
   relocation_assistance: RelocationAssistance | null;
   target_year: number | null;
-  target_season: TargetSeason;
+  target_season: TargetSeason | null;
   work_model: WorkModel | null;
   compensation_hourly_dollars: number | null;
   tags: string[];

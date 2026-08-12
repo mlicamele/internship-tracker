@@ -71,6 +71,35 @@ export async function saveSettings(formData: FormData) {
     fail("At least one fit-score slider must be greater than zero");
   }
 
+  // Per-tier distance overrides — empty string means "use preset", any
+  // 0..100 integer means "override the preset with this value / 100".
+  // Stored as numeric(3,2) in DB; null = fall through to preset.
+  function parseTierOverride(key: string, name: string): number | null {
+    const raw = formData.get(key);
+    if (raw === null || raw === "" || raw === undefined) return null;
+    const num = Number(raw);
+    if (!Number.isFinite(num) || num < 0 || num > 100) {
+      fail(`${name} tier override must be between 0 and 100`);
+    }
+    return Math.round(num) / 100;
+  }
+  const distCommutable = parseTierOverride(
+    "fit_dist_tier_score_commutable",
+    "Commutable"
+  );
+  const distRegional = parseTierOverride(
+    "fit_dist_tier_score_regional",
+    "Regional"
+  );
+  const distDomestic = parseTierOverride(
+    "fit_dist_tier_score_domestic",
+    "Domestic"
+  );
+  const distDistant = parseTierOverride(
+    "fit_dist_tier_score_distant",
+    "Distant"
+  );
+
   // Combined-score sliders (0..100 each). Same parseWeight validator; sum
   // must be > 0 so normalization doesn't divide by zero.
   const combinedWeightFit = parseWeight("combined_weight_fit", "Combined personal-fit");
@@ -89,6 +118,10 @@ export async function saveSettings(formData: FormData) {
     fit_weight_class_year: weightClassYear,
     fit_weight_distance: weightDistance,
     fit_weight_interest: weightInterest,
+    fit_dist_tier_score_commutable: distCommutable,
+    fit_dist_tier_score_regional: distRegional,
+    fit_dist_tier_score_domestic: distDomestic,
+    fit_dist_tier_score_distant: distDistant,
   };
 
   // Fetch current profile to compare address — no API call if unchanged

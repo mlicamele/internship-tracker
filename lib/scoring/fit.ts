@@ -20,7 +20,7 @@
 // resume upload / pdf-parse work (Phase 6-A).
 
 import { weightedNearestDistance } from "@/lib/distance";
-import type { Profile, Role } from "@/lib/db/types";
+import type { Profile, RelocationTolerance, Role } from "@/lib/db/types";
 
 /**
  * Default weights when the profile hasn't set custom ones (or when the
@@ -75,23 +75,76 @@ export interface FitScore {
 
 const NEUTRAL = 0.5;
 
-/** Multiplier on `profile.local_radius_miles` at which the linear distance decay reaches zero, per relocation_tolerance. */
-const DISTANCE_DECAY_K = {
-  nope: 2,
-  regional: 6,
-  anywhere: 20,
-} as const;
+/**
+ * Four fixed distance tiers matched by nearest geocoded location.
+ * Thresholds are fixed (not user-configurable) — they correspond to
+ * widely-shared intuitions about US travel:
+ *   Commutable (0-30 mi)   → daily commute realistic
+ *   Regional   (30-150 mi) → day-trip / weekend commute possible
+ *   Domestic   (150-1000)  → flight required, still domestic
+ *   Distant    (1000+ mi)  → international / coast-to-coast
+ * See spec: docs/superpowers/specs/2026-08-12-distance-scoring-tiers-design.md
+ */
+export type DistanceTier = "commutable" | "regional" | "domestic" | "distant";
 
-/** Distance-component fallback when the role has no geocoded locations. */
-const REMOTE_UNGEOCODED_SCORE = 0.8;
-const UNKNOWN_UNGEOCODED_SCORE = 0.4;
+export const DISTANCE_TIER_ORDER: readonly DistanceTier[] = [
+  "commutable",
+  "regional",
+  "domestic",
+  "distant",
+] as const;
+
+/** Upper bound (exclusive above) in miles for each tier. */
+const DISTANCE_TIER_THRESHOLDS: Record<
+  Exclude<DistanceTier, "distant">,
+  number
+> = {
+  commutable: 30,
+  regional: 150,
+  domestic: 1000,
+};
+
+/**
+ * Preset tier-score profiles keyed by `relocation_tolerance`. Reused
+ * existing field so no schema addition was needed for the preset itself.
+ * All floors ≥ 0.20 — distance is a soft signal, not a disqualifier.
+ */
+const PRESET_TIER_SCORES: Record<
+  RelocationTolerance,
+  Record<DistanceTier, number>
+> = {
+  nope: { commutable: 1.0, regional: 0.55, domestic: 0.3, distant: 0.2 },
+  regional: { commutable: 1.0, regional: 0.85, domestic: 0.65, distant: 0.5 },
+  anywhere: { commutable: 1.0, regional: 0.95, domestic: 0.9, distant: 0.85 },
+};
+
+/** Which tier a distance belongs to. Lower bound of each tier is inclusive. */
+export function tierForDistance(miles: number): DistanceTier {
+  if (miles <= DISTANCE_TIER_THRESHOLDS.commutable) return "commutable";
+  if (miles <= DISTANCE_TIER_THRESHOLDS.regional) return "regional";
+  if (miles <= DISTANCE_TIER_THRESHOLDS.domestic) return "domestic";
+  return "distant";
+}
+
+/** Score for a tier, respecting per-tier overrides on the profile before falling back to the preset. */
+function tierScoreFor(profile: ScoreProfile, tier: DistanceTier): number {
+  const override =
+    tier === "commutable"
+      ? profile.fit_dist_tier_score_commutable
+      : tier === "regional"
+        ? profile.fit_dist_tier_score_regional
+        : tier === "domestic"
+          ? profile.fit_dist_tier_score_domestic
+          : profile.fit_dist_tier_score_distant;
+  if (override != null && Number.isFinite(override)) return override;
+  return PRESET_TIER_SCORES[profile.relocation_tolerance][tier];
+}
 
 type ScoreProfile = Pick<
   Profile,
   | "grad_year"
   | "home_lat"
   | "home_lng"
-  | "local_radius_miles"
   | "relocation_tolerance"
   | "interest_tags"
 > &
@@ -102,6 +155,17 @@ type ScoreProfile = Pick<
     Pick<
       Profile,
       "fit_weight_class_year" | "fit_weight_distance" | "fit_weight_interest"
+    >
+  > &
+  // Per-tier overrides — always present after migration 0019 (nullable
+  // columns default to null, meaning "use preset").
+  Partial<
+    Pick<
+      Profile,
+      | "fit_dist_tier_score_commutable"
+      | "fit_dist_tier_score_regional"
+      | "fit_dist_tier_score_domestic"
+      | "fit_dist_tier_score_distant"
     >
   >;
 
@@ -151,27 +215,35 @@ function scoreDistance(
   role: ScoreRole,
   profile: ScoreProfile
 ): { distance: number; distanceMiles: number | null } {
+  // No home reference — can't compute distance, don't push either way.
   if (profile.home_lat == null || profile.home_lng == null) {
     return { distance: NEUTRAL, distanceMiles: null };
+  }
+
+  // Remote roles have zero commute by definition — always Commutable-tier
+  // regardless of geocode. Uses the profile's Commutable tier score so
+  // "anywhere"-preset users still get 1.0 and "nope"-preset users also
+  // get 1.0 (Commutable is 1.0 in every preset). Overrides still apply.
+  if (role.work_model === "remote") {
+    return {
+      distance: tierScoreFor(profile, "commutable"),
+      distanceMiles: null,
+    };
   }
 
   const d = weightedNearestDistance(role.locations, [
     { lat: profile.home_lat, lng: profile.home_lng, weight: 1 },
   ]);
 
-  if (d == null) {
-    if (role.work_model === "remote") {
-      return { distance: REMOTE_UNGEOCODED_SCORE, distanceMiles: null };
-    }
-    return { distance: UNKNOWN_UNGEOCODED_SCORE, distanceMiles: null };
-  }
+  // Non-remote with no geocoded location — we honestly don't know how far
+  // it is, so return neutral. Previous 0.4-for-unknown / 0.8-for-remote
+  // fallbacks were arbitrary; NEUTRAL matches how other missing signals
+  // are handled (scoreClassYear on null grad_year, scoreInterest on empty
+  // tags on either side).
+  if (d == null) return { distance: NEUTRAL, distanceMiles: null };
 
-  // Guard divide-by-zero on radius; treat 0 as 1 so decay is well-defined.
-  const radius = Math.max(profile.local_radius_miles, 1);
-  const k = DISTANCE_DECAY_K[profile.relocation_tolerance];
-  const decayed = Math.max(0, 1 - d / (k * radius));
-
-  return { distance: decayed, distanceMiles: d };
+  const tier = tierForDistance(d);
+  return { distance: tierScoreFor(profile, tier), distanceMiles: d };
 }
 
 function scoreInterest(role: ScoreRole, profile: ScoreProfile): number {

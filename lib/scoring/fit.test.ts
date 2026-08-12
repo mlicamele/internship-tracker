@@ -11,16 +11,23 @@ const baseProfile: Pick<
   | "grad_year"
   | "home_lat"
   | "home_lng"
-  | "local_radius_miles"
   | "relocation_tolerance"
   | "interest_tags"
+  | "fit_dist_tier_score_commutable"
+  | "fit_dist_tier_score_regional"
+  | "fit_dist_tier_score_domestic"
+  | "fit_dist_tier_score_distant"
 > = {
   grad_year: 2028,
   home_lat: 40.7128,
   home_lng: -74.006,
-  local_radius_miles: 100,
   relocation_tolerance: "regional",
   interest_tags: [],
+  // Null overrides → preset defaults apply.
+  fit_dist_tier_score_commutable: null,
+  fit_dist_tier_score_regional: null,
+  fit_dist_tier_score_domestic: null,
+  fit_dist_tier_score_distant: null,
 };
 
 const baseRole: Pick<
@@ -39,9 +46,12 @@ const baseRole: Pick<
 // isn't a perfect sphere.
 const NYC_LAT = 40.7128;
 const NYC_LNG = -74.006;
-const ONE_HUNDRED_MI_NORTH = NYC_LAT + 100 / 69.0472; // ≈ 42.16
-const FIFTY_MI_NORTH = NYC_LAT + 50 / 69.0472;
-const TWO_HUNDRED_MI_NORTH = NYC_LAT + 200 / 69.0472;
+const MI_PER_DEG = 69.0472;
+const TEN_MI_NORTH = NYC_LAT + 10 / MI_PER_DEG; // Commutable tier (< 30 mi)
+const ONE_HUNDRED_MI_NORTH = NYC_LAT + 100 / MI_PER_DEG; // Regional tier (30-150)
+const FIVE_HUNDRED_MI_NORTH = NYC_LAT + 500 / MI_PER_DEG; // Domestic tier (150-1000)
+const TWO_HUNDRED_MI_NORTH = NYC_LAT + 200 / MI_PER_DEG; // Domestic tier
+const TWO_THOUSAND_MI_NORTH = NYC_LAT + 2000 / MI_PER_DEG; // Distant tier
 
 describe("computeFitScore — class-year component", () => {
   it("returns 0.5 when profile.grad_year is null (no signal)", () => {
@@ -106,7 +116,7 @@ describe("computeFitScore — class-year component", () => {
   });
 });
 
-describe("computeFitScore — distance component", () => {
+describe("computeFitScore — distance component (tier model)", () => {
   it("returns 0.5 with distanceMiles=null when profile has no home coords", () => {
     const profile = { ...baseProfile, home_lat: null, home_lng: null };
     const role = {
@@ -118,18 +128,27 @@ describe("computeFitScore — distance component", () => {
     expect(s.distanceMiles).toBeNull();
   });
 
-  it("returns 0.8 when the role has no geocoded locations but work_model is remote", () => {
-    const role = {
+  it("remote role scores Commutable-tier (1.0) regardless of geocode", () => {
+    const roleUngeocoded = {
       ...baseRole,
       locations: [{ text: "Remote", lat: null, lng: null }],
       work_model: "remote" as const,
     };
-    const s = computeFitScore(role, baseProfile);
-    expect(s.components.distance).toBe(0.8);
-    expect(s.distanceMiles).toBeNull();
+    const s1 = computeFitScore(roleUngeocoded, baseProfile);
+    expect(s1.components.distance).toBe(1.0);
+    expect(s1.distanceMiles).toBeNull();
+
+    // Remote role geocoded to somewhere distant → still 1.0 (remote overrides distance)
+    const roleGeocodedFar = {
+      ...baseRole,
+      locations: [{ text: "Anywhere USA", lat: TWO_THOUSAND_MI_NORTH, lng: NYC_LNG }],
+      work_model: "remote" as const,
+    };
+    const s2 = computeFitScore(roleGeocodedFar, baseProfile);
+    expect(s2.components.distance).toBe(1.0);
   });
 
-  it("returns 0.4 when the role has no geocoded locations and work_model is not remote", () => {
+  it("ungeocoded onsite/hybrid roles return 0.5 (neutral)", () => {
     for (const work_model of ["onsite", "hybrid", null] as const) {
       const role = {
         ...baseRole,
@@ -137,98 +156,89 @@ describe("computeFitScore — distance component", () => {
         work_model,
       };
       const s = computeFitScore(role, baseProfile);
-      expect(s.components.distance).toBe(0.4);
+      expect(s.components.distance).toBe(0.5);
       expect(s.distanceMiles).toBeNull();
     }
   });
 
-  it("scores 1.0 when role location equals home (d=0)", () => {
+  it("Commutable tier (< 30 mi) with default 'regional' preset → 1.0", () => {
     const role = {
       ...baseRole,
-      locations: [{ text: "NYC", lat: NYC_LAT, lng: NYC_LNG }],
+      locations: [{ text: "close", lat: TEN_MI_NORTH, lng: NYC_LNG }],
     };
     const s = computeFitScore(role, baseProfile);
-    expect(s.components.distance).toBe(1);
-    expect(s.distanceMiles).toBeCloseTo(0, 5);
+    expect(s.distanceMiles).toBeCloseTo(10, 0);
+    expect(s.components.distance).toBe(1.0);
   });
 
-  it("regional tolerance decays to ~0.833 at exactly 1×radius", () => {
+  it("Regional tier (30-150 mi) matches preset table", () => {
     const role = {
       ...baseRole,
-      locations: [{ text: "far", lat: ONE_HUNDRED_MI_NORTH, lng: NYC_LNG }],
+      locations: [{ text: "regional", lat: ONE_HUNDRED_MI_NORTH, lng: NYC_LNG }],
     };
-    const s = computeFitScore(role, baseProfile);
-    expect(s.distanceMiles).toBeCloseTo(100, 0);
-    // 1 - 100/(6*100) = 5/6 ≈ 0.833
-    expect(s.components.distance).toBeCloseTo(5 / 6, 2);
+    // nope preset → 0.55
+    expect(
+      computeFitScore(role, { ...baseProfile, relocation_tolerance: "nope" })
+        .components.distance
+    ).toBe(0.55);
+    // regional preset → 0.85
+    expect(computeFitScore(role, baseProfile).components.distance).toBe(0.85);
+    // anywhere preset → 0.95
+    expect(
+      computeFitScore(role, { ...baseProfile, relocation_tolerance: "anywhere" })
+        .components.distance
+    ).toBe(0.95);
   });
 
-  it("nope tolerance decays to ~0.5 at exactly 1×radius", () => {
+  it("Domestic tier (150-1000 mi) matches preset table", () => {
     const role = {
       ...baseRole,
-      locations: [{ text: "far", lat: ONE_HUNDRED_MI_NORTH, lng: NYC_LNG }],
+      locations: [{ text: "domestic", lat: FIVE_HUNDRED_MI_NORTH, lng: NYC_LNG }],
     };
+    expect(
+      computeFitScore(role, { ...baseProfile, relocation_tolerance: "nope" })
+        .components.distance
+    ).toBe(0.3);
+    expect(computeFitScore(role, baseProfile).components.distance).toBe(0.65);
+    expect(
+      computeFitScore(role, { ...baseProfile, relocation_tolerance: "anywhere" })
+        .components.distance
+    ).toBe(0.9);
+  });
+
+  it("Distant tier (1000+ mi) still has a soft floor — never zero", () => {
+    const role = {
+      ...baseRole,
+      locations: [{ text: "distant", lat: TWO_THOUSAND_MI_NORTH, lng: NYC_LNG }],
+    };
+    // Even the strictest preset floors at 0.2 — critical property. This was
+    // the point of the whole rework: distance is a soft signal, not a
+    // disqualifier for far roles.
+    expect(
+      computeFitScore(role, { ...baseProfile, relocation_tolerance: "nope" })
+        .components.distance
+    ).toBe(0.2);
+    expect(computeFitScore(role, baseProfile).components.distance).toBe(0.5);
+    expect(
+      computeFitScore(role, { ...baseProfile, relocation_tolerance: "anywhere" })
+        .components.distance
+    ).toBe(0.85);
+  });
+
+  it("per-tier override wins over preset when set", () => {
+    const role = {
+      ...baseRole,
+      locations: [{ text: "regional", lat: ONE_HUNDRED_MI_NORTH, lng: NYC_LNG }],
+    };
+    // regional preset would give 0.85; override says 0.25.
     const s = computeFitScore(role, {
       ...baseProfile,
-      relocation_tolerance: "nope",
+      fit_dist_tier_score_regional: 0.25,
     });
-    expect(s.components.distance).toBeCloseTo(0.5, 2);
+    expect(s.components.distance).toBe(0.25);
   });
 
-  it("nope tolerance is dead at 2×radius", () => {
-    const role = {
-      ...baseRole,
-      locations: [{ text: "far", lat: TWO_HUNDRED_MI_NORTH, lng: NYC_LNG }],
-    };
-    const s = computeFitScore(role, {
-      ...baseProfile,
-      relocation_tolerance: "nope",
-    });
-    expect(s.components.distance).toBeCloseTo(0, 2);
-  });
-
-  it("anywhere tolerance still scores ~0.95 at 1×radius", () => {
-    const role = {
-      ...baseRole,
-      locations: [{ text: "far", lat: ONE_HUNDRED_MI_NORTH, lng: NYC_LNG }],
-    };
-    const s = computeFitScore(role, {
-      ...baseProfile,
-      relocation_tolerance: "anywhere",
-    });
-    expect(s.components.distance).toBeCloseTo(0.95, 2);
-  });
-
-  it("clamps to 0 when distance far exceeds the tolerance's dead-zone", () => {
-    const role = {
-      ...baseRole,
-      // 100 degrees of latitude ≈ 6900 miles — well past even anywhere's 20×100
-      locations: [{ text: "far", lat: NYC_LAT + 100, lng: NYC_LNG }],
-    };
-    for (const tol of ["nope", "regional", "anywhere"] as const) {
-      const s = computeFitScore(role, {
-        ...baseProfile,
-        relocation_tolerance: tol,
-      });
-      expect(s.components.distance).toBe(0);
-    }
-  });
-
-  it("guards against divide-by-zero when local_radius_miles is 0", () => {
-    const role = {
-      ...baseRole,
-      locations: [{ text: "close", lat: FIFTY_MI_NORTH, lng: NYC_LNG }],
-    };
-    const s = computeFitScore(role, {
-      ...baseProfile,
-      local_radius_miles: 0,
-    });
-    // Radius clamped to 1 → distance 50 miles vastly exceeds all tolerance dead-zones
-    expect(s.components.distance).toBe(0);
-    expect(Number.isFinite(s.components.distance)).toBe(true);
-  });
-
-  it("uses the NEAREST of multiple geocoded locations", () => {
+  it("uses the NEAREST of multiple geocoded locations (mechanism unchanged)", () => {
     const role = {
       ...baseRole,
       locations: [
@@ -339,7 +349,12 @@ describe("computeFitScore — weighted total", () => {
     expect(s.ineligible).toBe(false);
   });
 
-  it("returns 0.0 when class-year fails AND distance is dead AND no interest overlap", () => {
+  it("worst case still has soft floors — class-year fails + Distant tier + no interest = 0.06 (not 0)", () => {
+    // Post-rework: distance has a floor of 0.2 even under 'nope' at Distant tier,
+    // and interest bottoms at 0 (no overlap) but class-year is a hard 0 when
+    // grad_year is outside the role's window. Total = 0*0.5 + 0.2*0.3 + 0*0.2 = 0.06.
+    // The point of this test is now: distance no longer zeros out the total
+    // even in the worst geographic case — which is the whole point of the rework.
     const profile = {
       ...baseProfile,
       relocation_tolerance: "nope" as const,
@@ -349,16 +364,16 @@ describe("computeFitScore — weighted total", () => {
       ...baseRole,
       min_grad_year: 2029,
       max_grad_year: 2029,
-      locations: [{ text: "far", lat: NYC_LAT + 100, lng: NYC_LNG }],
+      locations: [{ text: "far", lat: TWO_THOUSAND_MI_NORTH, lng: NYC_LNG }],
       tags: ["Robotics"],
     };
     const s = computeFitScore(role, profile);
-    expect(s.total).toBe(0);
+    expect(s.total).toBeCloseTo(0.06, 2);
     expect(s.ineligible).toBe(true);
   });
 
   it("combines mixed components via the documented weights", () => {
-    // Eligible (1.0) + regional at 1×radius (5/6) + full-interest (1.0)
+    // Eligible (1.0) + Regional-tier under 'regional' preset (0.85) + full-interest (1.0)
     const profile = { ...baseProfile, interest_tags: ["SWE"] };
     const role = {
       ...baseRole,
@@ -366,8 +381,8 @@ describe("computeFitScore — weighted total", () => {
       tags: ["SWE"],
     };
     const s = computeFitScore(role, profile);
-    // 1*0.5 + (5/6)*0.3 + 1*0.2 = 0.5 + 0.25 + 0.2 = 0.95
-    expect(s.total).toBeCloseTo(0.95, 2);
+    // 1*0.5 + 0.85*0.3 + 1*0.2 = 0.5 + 0.255 + 0.2 = 0.955 → rounded to 0.96
+    expect(s.total).toBeCloseTo(0.96, 2);
   });
 
   it("rounds the total to 2 decimals for DB storage", () => {

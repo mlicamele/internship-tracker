@@ -26,22 +26,29 @@
 export const MODEL_FOR = {
   /**
    * Full JD → structured JSON. Highest quality demand — every field
-   * downstream keys off this. Scout 17B MoE is comparable to 3.3 70B
-   * for structured extraction and has the highest TPM headroom.
+   * downstream keys off this. Progression:
+   *   - Scout (17B MoE) — deprecated by Groq 2026-08 (404, broke everything)
+   *   - openai/gpt-oss-120b — tried 2026-08-12; 8K TPM is a per-request cap,
+   *     our 9-12K-token extraction payloads got 413'd. Reverted immediately.
+   *   - llama-3.3-70b-versatile (current) — 12K TPM comfortably fits our
+   *     payload; 100K TPD, now isolated (scoring moved to gpt-oss-20b).
    */
-  extraction: "meta-llama/llama-4-scout-17b-16e-instruct",
+  extraction: "llama-3.3-70b-versatile",
 
   /**
    * Resume × JD → 6-category 1-10 rubric grades + notes. Categorical
-   * output, so a smaller model is fine. Moved off Scout to isolate the
-   * biggest single burst (58-app backfills) from URL extraction.
+   * output, so a smaller model is fine. Moved to gpt-oss-20b so it has
+   * its own 200K TPD budget separate from extraction — a 58-app backfill
+   * won't touch the extraction budget.
+   * NOTE: Swapping models auto-invalidates the resume_fit_input_hash cache
+   * (see computeInputHash), so the next batch rescores all rows.
    */
-  scoring: "llama-3.3-70b-versatile",
+  scoring: "openai/gpt-oss-20b",
 
   /**
    * JD title + body → 1-3 tags from a closed vocabulary. Bounded
    * output, cheapest task. 8B Instant is very fast and has a separate
-   * TPD budget that we barely touch.
+   * 500K TPD budget that we barely touch.
    */
   classification: "llama-3.1-8b-instant",
 } as const;

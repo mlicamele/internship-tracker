@@ -74,7 +74,7 @@ interface Draft {
   min_grad_year: string;
   max_grad_year: string;
   target_year: string;
-  target_season: TargetSeason;
+  target_season: TargetSeason | "";
   work_model: WorkModel | "";
   relocation_assistance: RelocationAssistance | "";
   compensation_hourly_dollars: string;
@@ -139,7 +139,7 @@ function draftFromApplication(
     min_grad_year: r.min_grad_year ? String(r.min_grad_year) : "",
     max_grad_year: r.max_grad_year ? String(r.max_grad_year) : "",
     target_year: r.target_year ? String(r.target_year) : "",
-    target_season: r.target_season,
+    target_season: r.target_season ?? "",
     work_model: r.work_model ?? "",
     relocation_assistance: r.relocation_assistance ?? "",
     compensation_hourly_dollars:
@@ -527,12 +527,13 @@ export function EditApplicationView({
             onRevert={() => revertField("target_season")}
           >
             <select
-              value={draft.target_season}
+              value={draft.target_season ?? ""}
               onChange={(e) =>
-                update("target_season", e.target.value as TargetSeason)
+                update("target_season", e.target.value as TargetSeason | "")
               }
               className={SELECT_CLS}
             >
+              <option value="">— not set —</option>
               <option value="summer">Summer</option>
               <option value="fall">Fall</option>
               <option value="winter">Winter</option>

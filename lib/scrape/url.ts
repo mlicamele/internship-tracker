@@ -49,7 +49,7 @@ function emptyResult(url: string): ScrapeResult {
     posted_at: null,
     work_model: null,
     target_year: null,
-    target_season: "summer",
+    target_season: null,
     min_grad_year: null,
     max_grad_year: null,
     relocation_assistance: null,

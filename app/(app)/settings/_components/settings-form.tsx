@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { saveSettings } from "../actions";
 import { FitWeightsControls } from "./fit-weights";
+import { DistanceTierOverrides } from "./distance-tier-overrides";
 import { CombinedWeightsControls } from "./combined-weights";
 
 const CURRENT_YEAR = new Date().getFullYear();
@@ -105,6 +106,13 @@ export function SettingsForm({
             <option value="regional">Same region is OK</option>
             <option value="anywhere">Anywhere is fine</option>
           </select>
+          <DistanceTierOverrides
+            initialCommutable={profile.fit_dist_tier_score_commutable}
+            initialRegional={profile.fit_dist_tier_score_regional}
+            initialDomestic={profile.fit_dist_tier_score_domestic}
+            initialDistant={profile.fit_dist_tier_score_distant}
+            initialPreset={profile.relocation_tolerance}
+          />
         </div>
       </section>
 

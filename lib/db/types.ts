@@ -82,6 +82,13 @@ export interface Profile {
   // Normalized at read time (lib/scoring/combined.ts). Default 50/50.
   combined_weight_fit: number;
   combined_weight_resume: number;
+  // Added in migration 0019 — per-tier score overrides for the distance
+  // component. Null → preset value from relocation_tolerance applies.
+  // Range 0..1. See lib/scoring/fit.ts DISTANCE_TIERS + PRESET_TIER_SCORES.
+  fit_dist_tier_score_commutable: number | null;
+  fit_dist_tier_score_regional: number | null;
+  fit_dist_tier_score_domestic: number | null;
+  fit_dist_tier_score_distant: number | null;
   created_at: string;
   updated_at: string;
   onboarding_completed_at: string | null;
@@ -127,7 +134,8 @@ export interface Role {
   source_external_id: string | null;
   // Added in migration 0002
   target_year: number | null;
-  target_season: TargetSeason;
+  /** Null when the JD doesn't state a season. "summer" is no longer a default — see migration 0018. */
+  target_season: TargetSeason | null;
   work_model: WorkModel | null;
   /** Hourly rate in whole dollars (e.g. 50 for $50/hr). Null if unknown or non-numeric comp. */
   compensation_hourly_dollars: number | null;

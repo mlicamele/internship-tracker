@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getById, setTriageState } from "@/lib/db/applications";
 import {
   rescoreInboxAgainstResume,
+  rescoreResumeFitBatch,
   scoreAndPersistResumeFit,
 } from "@/lib/db/resume-fit";
 import type { TriageState } from "@/lib/db/types";
@@ -123,6 +124,55 @@ export async function setTriageResumeAction(
   }
 
   revalidatePath("/inbox");
+}
+
+/**
+ * Score every inbox application that currently has no resume-fit score
+ * (typically: legacy rows added before scoring code, or rows whose earlier
+ * scoring call failed). Uses the batch runner which respects the process-wide
+ * Groq rate limiter, so 15+ rows won't overwhelm the free tier.
+ *
+ * Returns { rescored, alreadyScored, noResume } counts so the UI can surface
+ * "N newly scored" instead of a silent success.
+ */
+export async function rescoreUnscoredInboxAction(): Promise<{
+  rescored: number;
+  alreadyScored: number;
+  noResume: number;
+  errors: number;
+}> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) redirect("/login");
+
+  const { data, error } = await supabase
+    .from("applications")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("triage_state", "inbox")
+    .is("resume_fit_scored_at", null);
+  if (error) throw error;
+
+  const ids = (data ?? []).map((r) => (r as { id: string }).id);
+  if (ids.length === 0) {
+    return { rescored: 0, alreadyScored: 0, noResume: 0, errors: 0 };
+  }
+
+  const results = await rescoreResumeFitBatch(supabase, ids);
+  let rescored = 0;
+  let alreadyScored = 0;
+  let noResume = 0;
+  let errors = 0;
+  for (const r of results) {
+    if (r.outcome === "scored" || r.outcome === "insufficient_text") rescored++;
+    else if (r.outcome === "cache_hit") alreadyScored++;
+    else if (r.outcome === "no_resume") noResume++;
+    else errors++;
+  }
+  revalidatePath("/inbox");
+  return { rescored, alreadyScored, noResume, errors };
 }
 
 export async function resetToInboxAction(applicationId: string) {

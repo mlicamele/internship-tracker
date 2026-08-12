@@ -410,11 +410,14 @@ export async function updateRoleFieldAction(
       break;
     }
     case "target_season": {
-      const v = (rawValue ?? "summer") as TargetSeason;
-      if (!TARGET_SEASON_VALUES.has(v)) {
+      const raw = emptyToNull(rawValue ?? "");
+      if (raw === null) {
+        patch.target_season = null;
+      } else if (TARGET_SEASON_VALUES.has(raw as TargetSeason)) {
+        patch.target_season = raw as TargetSeason;
+      } else {
         return { ok: false, error: "Invalid target season" };
       }
-      patch.target_season = v;
       break;
     }
     case "work_model": {
