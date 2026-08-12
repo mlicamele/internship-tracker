@@ -48,3 +48,10 @@ scripts/link-check-dry-run.txt
 
 # claude code local state (scheduled tasks lock, per-user settings)
 .claude/
+
+# personal working notes — kept local, not part of the public history.
+# Used offline to generate README summaries; never committed.
+/CLAUDE.md
+/docs/STATUS.md
+/docs/CHANGELOG.md
+/docs/LOG.md

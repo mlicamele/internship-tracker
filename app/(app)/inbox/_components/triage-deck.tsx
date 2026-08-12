@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useTransition } from "react";
+import { useCallback, useEffect, useState, useTransition } from "react";
 import {
   motion,
   useMotionValue,
@@ -34,6 +34,21 @@ import { resetToInboxAction, triageAction, type TriageAction } from "../actions"
 const SWIPE_DISTANCE_THRESHOLD = 100;
 const SWIPE_VELOCITY_THRESHOLD = 500;
 const EXIT_DURATION = 0.25;
+const UNDO_STACK_MAX = 10;
+
+type UndoEntry = {
+  row: PipelineRow;
+  action: TriageAction;
+  deckSnapshot: PipelineRow[];
+};
+
+/** True when the event target is a form field — don't hijack typing. */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName;
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return true;
+  return target.isContentEditable;
+}
 
 /**
  * Card-based swipe view over the sorted inbox. Right = apply, left = skip,
@@ -53,46 +68,90 @@ export function TriageDeck({
 }) {
   const eligibleRows = rows.filter((r) => !r.fit_details?.ineligible);
   const [deck, setDeck] = useState<PipelineRow[]>(eligibleRows);
-  const [lastAction, setLastAction] = useState<
-    | { row: PipelineRow; action: TriageAction; deckSnapshot: PipelineRow[] }
-    | null
-  >(null);
+  const [undoStack, setUndoStack] = useState<UndoEntry[]>([]);
   const [, startTransition] = useTransition();
 
   const total = eligibleRows.length;
   const remaining = deck.length;
   const done = total - remaining;
+  const undoCount = undoStack.length;
+  const lastAction = undoStack[undoStack.length - 1] ?? null;
 
-  function handleSwipe(action: TriageAction) {
-    const top = deck[0];
-    if (!top) return;
-    const prevDeck = deck;
-    setDeck((d) => d.slice(1));
-    setLastAction({ row: top, action, deckSnapshot: prevDeck });
+  const handleSwipe = useCallback(
+    (action: TriageAction) => {
+      const currentDeck = deck;
+      const top = currentDeck[0];
+      if (!top) return;
+      setDeck(currentDeck.slice(1));
+      setUndoStack((stack) => {
+        const appended = [
+          ...stack,
+          { row: top, action, deckSnapshot: currentDeck },
+        ];
+        return appended.length > UNDO_STACK_MAX
+          ? appended.slice(appended.length - UNDO_STACK_MAX)
+          : appended;
+      });
+      startTransition(async () => {
+        try {
+          await triageAction(top.id, action);
+        } catch {
+          toast.error("Couldn't save that action. Restoring card.");
+          setDeck(currentDeck);
+          setUndoStack((stack) =>
+            stack.length && stack[stack.length - 1].row.id === top.id
+              ? stack.slice(0, -1)
+              : stack
+          );
+        }
+      });
+    },
+    [deck, startTransition]
+  );
+
+  const handleUndo = useCallback(() => {
+    const stack = undoStack;
+    if (stack.length === 0) return;
+    const entry = stack[stack.length - 1];
+    setUndoStack(stack.slice(0, -1));
     startTransition(async () => {
       try {
-        await triageAction(top.id, action);
-      } catch {
-        toast.error("Couldn't save that action. Restoring card.");
-        setDeck(prevDeck);
-        setLastAction(null);
-      }
-    });
-  }
-
-  function handleUndo() {
-    if (!lastAction) return;
-    const { row, deckSnapshot } = lastAction;
-    startTransition(async () => {
-      try {
-        await resetToInboxAction(row.id);
-        setDeck(deckSnapshot);
-        setLastAction(null);
+        await resetToInboxAction(entry.row.id);
+        setDeck(entry.deckSnapshot);
       } catch {
         toast.error("Couldn't undo.");
+        setUndoStack((s) => [...s, entry]);
       }
     });
-  }
+  }, [undoStack, startTransition]);
+
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (isEditableTarget(e.target)) return;
+      const key = e.key.toLowerCase();
+      switch (key) {
+        case "j":
+          e.preventDefault();
+          handleSwipe("skip");
+          break;
+        case "k":
+          e.preventDefault();
+          handleSwipe("apply");
+          break;
+        case "u":
+          e.preventDefault();
+          handleSwipe("snooze");
+          break;
+        case "z":
+          e.preventDefault();
+          handleUndo();
+          break;
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [handleSwipe, handleUndo]);
 
   if (total === 0) {
     return (
@@ -120,7 +179,8 @@ export function TriageDeck({
               onClick={handleUndo}
               className="text-xs font-medium text-muted-foreground underline underline-offset-4 hover:text-foreground"
             >
-              Undo last ({actionLabel(lastAction.action)})
+              Undo last ({actionLabel(lastAction.action)}
+              {undoCount > 1 ? `, ${undoCount} in stack` : ""})
             </button>
           </div>
         )}
@@ -137,13 +197,13 @@ export function TriageDeck({
         <button
           type="button"
           onClick={handleUndo}
-          disabled={!lastAction}
+          disabled={undoCount === 0}
           className={cn(
             "font-medium underline-offset-4 hover:underline",
-            !lastAction && "invisible"
+            undoCount === 0 && "invisible"
           )}
         >
-          Undo {lastAction && `(${actionLabel(lastAction.action)})`}
+          Undo {undoCount > 0 && `(${undoCount})`}
         </button>
         <span className="tabular-nums">
           {done + 1} of {total}
@@ -186,10 +246,32 @@ export function TriageDeck({
         </Button>
       </div>
 
-      <p className="text-center text-[11px] text-muted-foreground">
-        Swipe right to apply · left to skip · up to snooze
-      </p>
+      <div className="space-y-1 text-center text-[11px] text-muted-foreground">
+        <p>Swipe right to apply · left to skip · up to snooze</p>
+        <p className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+          <span>
+            <Kbd>j</Kbd> skip
+          </span>
+          <span>
+            <Kbd>k</Kbd> apply
+          </span>
+          <span>
+            <Kbd>u</Kbd> snooze
+          </span>
+          <span>
+            <Kbd>z</Kbd> undo
+          </span>
+        </p>
+      </div>
     </div>
+  );
+}
+
+function Kbd({ children }: { children: React.ReactNode }) {
+  return (
+    <kbd className="rounded border border-border bg-muted/60 px-1 py-px font-mono text-[10px] font-semibold text-foreground">
+      {children}
+    </kbd>
   );
 }
 
