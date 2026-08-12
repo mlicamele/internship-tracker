@@ -25,7 +25,9 @@ export function FitDetailsPopover({
   align?: "start" | "end";
 }) {
   const [open, setOpen] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
 
   function clearCloseTimer() {
     if (closeTimer.current) {
@@ -39,8 +41,22 @@ export function FitDetailsPopover({
     closeTimer.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
   }
 
+  // Fit popover is ~200-260px tall (header + 3 component rows + footer).
+  // Conservative estimate to decide flip vs open-below.
+  const POPOVER_ESTIMATED_HEIGHT = 260;
+
   function openNow() {
     clearCloseTimer();
+    // Decide flip direction based on available viewport space at open time
+    // so bottom rows in pipeline/archive don't get their popovers clipped.
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setFlipUp(
+        spaceBelow < POPOVER_ESTIMATED_HEIGHT && spaceAbove > spaceBelow
+      );
+    }
     setOpen(true);
   }
 
@@ -52,6 +68,7 @@ export function FitDetailsPopover({
 
   return (
     <span
+      ref={triggerRef}
       className="relative inline-flex cursor-help items-center gap-0.5"
       onMouseEnter={openNow}
       onMouseLeave={scheduleClose}
@@ -69,7 +86,8 @@ export function FitDetailsPopover({
           onMouseEnter={openNow}
           onMouseLeave={scheduleClose}
           className={cn(
-            "absolute top-full z-50 pt-1",
+            "absolute z-50",
+            flipUp ? "bottom-full pb-1" : "top-full pt-1",
             align === "end" ? "right-0" : "left-0"
           )}
         >

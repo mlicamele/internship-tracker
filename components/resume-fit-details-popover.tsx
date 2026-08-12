@@ -38,7 +38,9 @@ export function ResumeFitDetailsPopover({
   align?: "start" | "end";
 }) {
   const [open, setOpen] = useState(false);
+  const [flipUp, setFlipUp] = useState(false);
   const closeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const triggerRef = useRef<HTMLSpanElement | null>(null);
 
   function clearCloseTimer() {
     if (closeTimer.current) {
@@ -52,8 +54,22 @@ export function ResumeFitDetailsPopover({
     closeTimer.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS);
   }
 
+  // Popover is ~360-420px tall depending on content (rubric rows + rationale
+  // + skills + gaps). Use a conservative estimate to decide flip.
+  const POPOVER_ESTIMATED_HEIGHT = 420;
+
   function openNow() {
     clearCloseTimer();
+    // Decide flip direction based on available viewport space at open time.
+    // Bottom rows of pipeline/archive get clipped without this.
+    if (triggerRef.current) {
+      const rect = triggerRef.current.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+      setFlipUp(
+        spaceBelow < POPOVER_ESTIMATED_HEIGHT && spaceAbove > spaceBelow
+      );
+    }
     setOpen(true);
   }
 
@@ -65,6 +81,7 @@ export function ResumeFitDetailsPopover({
 
   return (
     <span
+      ref={triggerRef}
       className="relative inline-flex cursor-help items-center gap-0.5"
       onMouseEnter={openNow}
       onMouseLeave={scheduleClose}
@@ -78,15 +95,17 @@ export function ResumeFitDetailsPopover({
       {children}
 
       {open && (
-        // Outer wrapper closes the visual gap: pt-1 creates a transparent
-        // "bridge" so the mouse can move from the trigger's bottom edge
-        // into the tooltip without ever hitting empty space. The wrapper
-        // itself is inside the trigger's onMouseLeave region.
+        // Outer wrapper closes the visual gap: pt-1/pb-1 creates a transparent
+        // "bridge" so the mouse can move from the trigger edge into the
+        // tooltip without hitting empty space. The wrapper itself is inside
+        // the trigger's onMouseLeave region. pb-1 when flipUp so the bridge
+        // sits between the popover (above) and the trigger (below).
         <div
           onMouseEnter={openNow}
           onMouseLeave={scheduleClose}
           className={cn(
-            "absolute top-full z-50 pt-1",
+            "absolute z-50",
+            flipUp ? "bottom-full pb-1" : "top-full pt-1",
             align === "end" ? "right-0" : "left-0"
           )}
         >
