@@ -36,14 +36,19 @@ export const MODEL_FOR = {
   extraction: "llama-3.3-70b-versatile",
 
   /**
-   * Resume × JD → 6-category 1-10 rubric grades + notes. Categorical
-   * output, so a smaller model is fine. Moved to gpt-oss-20b so it has
-   * its own 200K TPD budget separate from extraction — a 58-app backfill
-   * won't touch the extraction budget.
+   * Resume × JD → 6-category 1-10 rubric grades + notes. Progression:
+   *   - llama-3.3-70b-versatile — original, worked fine
+   *   - openai/gpt-oss-20b — tried for TPD isolation (200K vs 70b's 100K)
+   *     but the 20b model reliably fails to emit valid JSON for the full
+   *     6-category rubric ("Failed to validate JSON" / "max completion
+   *     tokens reached before generating a valid document"). Reverted.
+   *   - llama-3.3-70b-versatile (current) — shared 100K TPD with extraction
+   *     is the trade for reliable scoring. Token tracker in rate-limiter.ts
+   *     warns at 80% so we see exhaustion coming.
    * NOTE: Swapping models auto-invalidates the resume_fit_input_hash cache
    * (see computeInputHash), so the next batch rescores all rows.
    */
-  scoring: "openai/gpt-oss-20b",
+  scoring: "llama-3.3-70b-versatile",
 
   /**
    * JD title + body → 1-3 tags from a closed vocabulary. Bounded
