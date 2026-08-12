@@ -1,8 +1,25 @@
-import { PDFParse } from "pdf-parse";
+/**
+ * Resume PDF text extraction.
+ *
+ * Loads `pdf-parse` lazily via dynamic import — the module and its
+ * `pdfjs-dist` dependency reach for browser globals (specifically
+ * `DOMMatrix`) at module init, which are undefined in Node runtimes
+ * on Vercel. A top-level `import` triggers the crash on any route that
+ * imports THIS file's caller chain (notably /settings → ResumeSection
+ * → resume-actions → parse), even if the user never uploads a PDF.
+ *
+ * Dynamic-importing here defers the load until parseResumePdf() is
+ * actually called (upload path only), so the /settings render succeeds.
+ * See Vercel error: `ReferenceError: DOMMatrix is not defined` at
+ * externalImport for pdf-parse.
+ */
 
 export async function parseResumePdf(
   bytes: Buffer
 ): Promise<{ text: string; pageCount: number }> {
+  // Lazy — see file-level comment. Do NOT hoist to a top-level import.
+  const { PDFParse } = await import("pdf-parse");
+
   let result;
   try {
     const parser = new PDFParse({ data: new Uint8Array(bytes) });
