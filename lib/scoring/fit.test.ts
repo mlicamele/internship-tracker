@@ -11,6 +11,7 @@ const baseProfile: Pick<
   | "grad_year"
   | "home_lat"
   | "home_lng"
+  | "local_radius_miles"
   | "relocation_tolerance"
   | "interest_tags"
   | "fit_dist_tier_score_commutable"
@@ -21,6 +22,7 @@ const baseProfile: Pick<
   grad_year: 2028,
   home_lat: 40.7128,
   home_lng: -74.006,
+  local_radius_miles: 30, // matches DEFAULT_COMMUTABLE_MILES in fit.ts
   relocation_tolerance: "regional",
   interest_tags: [],
   // Null overrides → preset defaults apply.
@@ -221,6 +223,40 @@ describe("computeFitScore — distance component (tier model)", () => {
     expect(computeFitScore(role, baseProfile).components.distance).toBe(0.5);
     expect(
       computeFitScore(role, { ...baseProfile, relocation_tolerance: "anywhere" })
+        .components.distance
+    ).toBe(0.85);
+  });
+
+  it("local_radius_miles widens the Commutable tier so more roles score full 1.0", () => {
+    // 100 mi role. With default radius=30 → Regional tier → 0.85 under 'regional' preset.
+    // With radius=100 (user is willing to commute 100 mi) → Commutable → 1.0.
+    const role = {
+      ...baseRole,
+      locations: [{ text: "far", lat: ONE_HUNDRED_MI_NORTH, lng: NYC_LNG }],
+    };
+    expect(
+      computeFitScore(role, { ...baseProfile, local_radius_miles: 30 }).components
+        .distance
+    ).toBe(0.85); // Regional under default 30 mi cap
+    expect(
+      computeFitScore(role, { ...baseProfile, local_radius_miles: 110 })
+        .components.distance
+    ).toBe(1.0); // 100-mi role now Commutable (within widened 110-mi cap)
+  });
+
+  it("local_radius_miles clamps to [5, 150] range to prevent silly configs", () => {
+    const role = {
+      ...baseRole,
+      locations: [{ text: "moderate", lat: NYC_LAT + 50 / MI_PER_DEG, lng: NYC_LNG }],
+    };
+    // radius=999 clamps to 150 → 50 mi is still Commutable
+    expect(
+      computeFitScore(role, { ...baseProfile, local_radius_miles: 999 })
+        .components.distance
+    ).toBe(1.0);
+    // radius=0 (or negative) clamps to default 30 → 50 mi becomes Regional
+    expect(
+      computeFitScore(role, { ...baseProfile, local_radius_miles: 0 })
         .components.distance
     ).toBe(0.85);
   });

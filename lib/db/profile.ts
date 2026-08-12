@@ -21,6 +21,8 @@ export interface ProfileUpdate {
   fit_dist_tier_score_regional?: number | null;
   fit_dist_tier_score_domestic?: number | null;
   fit_dist_tier_score_distant?: number | null;
+  combined_weight_fit?: number;
+  combined_weight_resume?: number;
 }
 
 export async function getProfile(

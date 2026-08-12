@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useActionState, useEffect, useState } from "react";
 import type { Profile } from "@/lib/db/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { saveSettings } from "../actions";
+import { saveSettings, type SaveSettingsResult } from "../actions";
 import { FitWeightsControls } from "./fit-weights";
 import { DistanceTierOverrides } from "./distance-tier-overrides";
 import { CombinedWeightsControls } from "./combined-weights";
@@ -16,25 +16,53 @@ const GRAD_YEAR_OPTIONS = Array.from({ length: 9 }, (_, i) => CURRENT_YEAR + i);
 const SELECT_CLS =
   "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50";
 
+const INITIAL_STATE: SaveSettingsResult = { ok: true };
+
 export function SettingsForm({
   profile,
   availableTags,
-  error,
 }: {
   profile: Profile;
   availableTags: string[];
+  /** @deprecated no longer used — form now tracks its own state via useActionState. */
   error?: string;
 }) {
   const [selected, setSelected] = useState<string[]>(profile.interest_tags ?? []);
+  const [state, formAction, pending] = useActionState(
+    saveSettings,
+    INITIAL_STATE
+  );
+  // Dirty = anything on the form has changed since the last successful save.
+  // Save button is disabled when clean, so we get "Saved ✓" instead of a
+  // stale second save.
+  const [dirty, setDirty] = useState(false);
+
+  // Track a brief post-save "Saved ✓" affordance separate from `dirty` so
+  // the button flashes the confirmation for ~1.5s even if the user hasn't
+  // touched anything yet.
+  const [justSaved, setJustSaved] = useState(false);
+  useEffect(() => {
+    if (state.ok && !pending) {
+      setJustSaved(true);
+      setDirty(false);
+      const t = setTimeout(() => setJustSaved(false), 1500);
+      return () => clearTimeout(t);
+    }
+  }, [state, pending]);
 
   function toggle(tag: string) {
     setSelected((prev) =>
       prev.includes(tag) ? prev.filter((t) => t !== tag) : [...prev, tag]
     );
+    setDirty(true);
   }
 
   return (
-    <form action={saveSettings} className="space-y-6">
+    <form
+      action={formAction}
+      onChange={() => setDirty(true)}
+      className="space-y-6"
+    >
       {/* Basics */}
       <section className="space-y-4">
         <h2 className="text-sm font-semibold">Basics</h2>
@@ -81,17 +109,23 @@ export function SettingsForm({
           />
         </div>
         <div className="space-y-2">
-          <Label htmlFor="local_radius_miles">Local radius (miles)</Label>
+          <Label htmlFor="local_radius_miles">
+            Commutable radius (miles)
+          </Label>
           <Input
             id="local_radius_miles"
             name="local_radius_miles"
             type="number"
             min={5}
-            max={500}
+            max={150}
             step={5}
             defaultValue={profile.local_radius_miles}
             required
           />
+          <p className="text-xs text-muted-foreground">
+            Roles within this distance count as &ldquo;Commutable&rdquo; (top tier)
+            in the distance score. 5&ndash;150 mi.
+          </p>
         </div>
         <div className="space-y-2">
           <Label htmlFor="relocation_tolerance">Outside that radius</Label>
@@ -176,15 +210,60 @@ export function SettingsForm({
         />
       </section>
 
-      {error && (
+      {!state.ok && "error" in state && (
         <p className="text-sm text-destructive" role="alert">
-          {error}
+          {state.error}
         </p>
       )}
 
-      <Button type="submit" className="w-full">
-        Save
+      <Button
+        type="submit"
+        disabled={pending || (!dirty && !justSaved)}
+        aria-live="polite"
+        className={cn(
+          "w-full transition-colors",
+          justSaved && "bg-emerald-600 text-white hover:bg-emerald-600"
+        )}
+      >
+        {pending ? (
+          <SavingDots />
+        ) : justSaved ? (
+          <span className="inline-flex items-center gap-1.5">
+            <CheckIcon /> Saved
+          </span>
+        ) : (
+          "Save"
+        )}
       </Button>
     </form>
+  );
+}
+
+/** Three-dot loading indicator; the small staggered animation reads as "working." */
+function SavingDots() {
+  return (
+    <span className="inline-flex items-center gap-1" aria-label="Saving">
+      <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.3s]" />
+      <span className="size-1.5 animate-bounce rounded-full bg-current [animation-delay:-0.15s]" />
+      <span className="size-1.5 animate-bounce rounded-full bg-current" />
+    </span>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={3}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      className="size-4"
+      aria-hidden
+    >
+      <polyline points="20 6 9 17 4 12" />
+    </svg>
   );
 }

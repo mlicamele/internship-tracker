@@ -3,7 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { listByTriageState } from "@/lib/db/applications";
 import { getProfile } from "@/lib/db/profile";
 import { listResumeVersions } from "@/lib/db/resume-versions";
-import { weightedNearestDistance } from "@/lib/distance";
+import { sortLocationsByDistance, weightedNearestDistance } from "@/lib/distance";
 import { computeFitScore } from "@/lib/scoring/fit";
 import { computeCombinedScore } from "@/lib/scoring/combined";
 import { PipelineTable } from "../pipeline/_components/data-table";
@@ -29,8 +29,17 @@ export default async function ArchivePage() {
       ? [{ lat: profile.home_lat, lng: profile.home_lng, weight: 1 }]
       : [];
 
+  const home =
+    profile?.home_lat != null && profile.home_lng != null
+      ? { lat: profile.home_lat, lng: profile.home_lng }
+      : null;
+
   const rows: PipelineRow[] = applications.map((app) => {
-    const fit = profile ? computeFitScore(app.role, profile) : null;
+    const sortedLocations = sortLocationsByDistance(app.role.locations, home);
+    const roleWithSortedLocations = { ...app.role, locations: sortedLocations };
+    const fit = profile
+      ? computeFitScore(roleWithSortedLocations, profile)
+      : null;
     const combined = computeCombinedScore(
       fit?.total ?? null,
       app.resume_fit_score,
@@ -38,9 +47,10 @@ export default async function ArchivePage() {
     );
     return {
       ...app,
+      role: roleWithSortedLocations,
       distance_miles:
         destinations.length > 0
-          ? weightedNearestDistance(app.role.locations, destinations)
+          ? weightedNearestDistance(sortedLocations, destinations)
           : null,
       fit_details: fit,
       combined_total: combined.total,

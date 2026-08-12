@@ -94,15 +94,26 @@ export const DISTANCE_TIER_ORDER: readonly DistanceTier[] = [
   "distant",
 ] as const;
 
-/** Upper bound (exclusive above) in miles for each tier. */
-const DISTANCE_TIER_THRESHOLDS: Record<
-  Exclude<DistanceTier, "distant">,
-  number
-> = {
-  commutable: 30,
-  regional: 150,
-  domestic: 1000,
-};
+/**
+ * Upper bound (inclusive) in miles for each tier. The Commutable boundary
+ * is user-configurable via `profile.local_radius_miles` (defaults to
+ * DEFAULT_COMMUTABLE_MILES if the profile hasn't set it or is out of
+ * plausible range). Regional and Domestic boundaries are fixed — they
+ * correspond to widely-shared "day-trip" and "domestic flight" intuitions
+ * that don't need per-user tuning.
+ */
+const DEFAULT_COMMUTABLE_MILES = 30;
+const REGIONAL_MAX_MI = 150;
+const DOMESTIC_MAX_MI = 1000;
+
+function commutableCap(profile: Pick<Profile, "local_radius_miles">): number {
+  const r = profile.local_radius_miles;
+  if (!Number.isFinite(r) || r <= 0) return DEFAULT_COMMUTABLE_MILES;
+  // Cap at 150 (the Regional boundary) so a user can't accidentally define
+  // "Commutable" as bigger than "Regional." Floor at 5 for the same reason
+  // in reverse.
+  return Math.max(5, Math.min(REGIONAL_MAX_MI, r));
+}
 
 /**
  * Preset tier-score profiles keyed by `relocation_tolerance`. Reused
@@ -118,11 +129,19 @@ const PRESET_TIER_SCORES: Record<
   anywhere: { commutable: 1.0, regional: 0.95, domestic: 0.9, distant: 0.85 },
 };
 
-/** Which tier a distance belongs to. Lower bound of each tier is inclusive. */
-export function tierForDistance(miles: number): DistanceTier {
-  if (miles <= DISTANCE_TIER_THRESHOLDS.commutable) return "commutable";
-  if (miles <= DISTANCE_TIER_THRESHOLDS.regional) return "regional";
-  if (miles <= DISTANCE_TIER_THRESHOLDS.domestic) return "domestic";
+/**
+ * Which tier a distance belongs to. Lower bound of each tier is inclusive.
+ * `commutableCap` — user-configurable via profile.local_radius_miles — defines
+ * the Commutable/Regional boundary; Regional/Domestic/Distant boundaries are
+ * fixed at 150 / 1000 mi.
+ */
+export function tierForDistance(
+  miles: number,
+  commutableCap: number = DEFAULT_COMMUTABLE_MILES
+): DistanceTier {
+  if (miles <= commutableCap) return "commutable";
+  if (miles <= REGIONAL_MAX_MI) return "regional";
+  if (miles <= DOMESTIC_MAX_MI) return "domestic";
   return "distant";
 }
 
@@ -145,6 +164,7 @@ type ScoreProfile = Pick<
   | "grad_year"
   | "home_lat"
   | "home_lng"
+  | "local_radius_miles"
   | "relocation_tolerance"
   | "interest_tags"
 > &
@@ -242,7 +262,7 @@ function scoreDistance(
   // tags on either side).
   if (d == null) return { distance: NEUTRAL, distanceMiles: null };
 
-  const tier = tierForDistance(d);
+  const tier = tierForDistance(d, commutableCap(profile));
   return { distance: tierScoreFor(profile, tier), distanceMiles: d };
 }
 

@@ -11,6 +11,34 @@ export interface WeightedDestination extends LatLng {
 }
 
 /**
+ * Sort a role's locations so the closest to `home` comes first. Locations
+ * without geocoded coords are placed at the end (order-stable among themselves).
+ * Non-mutating — returns a new array. Safe to call with no home coords or
+ * an empty locations array.
+ *
+ * Used at server render time so the pipeline / inbox cells that display
+ * only `locations[0]` show the location the user actually cares about
+ * most (their nearest office) — not whatever order the LLM emitted or
+ * the DB happened to store.
+ */
+export function sortLocationsByDistance(
+  locations: RoleLocation[],
+  home: LatLng | null
+): RoleLocation[] {
+  if (!home || locations.length <= 1) return locations;
+  return [...locations].sort((a, b) => {
+    const aGeo = a.lat != null && a.lng != null;
+    const bGeo = b.lat != null && b.lng != null;
+    if (!aGeo && !bGeo) return 0;
+    if (!aGeo) return 1;
+    if (!bGeo) return -1;
+    const da = haversineMiles({ lat: a.lat!, lng: a.lng! }, home);
+    const db = haversineMiles({ lat: b.lat!, lng: b.lng! }, home);
+    return da - db;
+  });
+}
+
+/**
  * For each preferred destination, find the closest of the role's locations.
  * Return a weighted-average distance (weighted by destination weights).
  *

@@ -15,11 +15,37 @@ const RELOCATION_VALUES: ReadonlySet<RelocationTolerance> = new Set([
   "anywhere",
 ]);
 
+/** Return type from saveSettings — used by useActionState on the client. */
+export type SaveSettingsResult = { ok: true } | { ok: false; error: string };
+
+/**
+ * Throws a "return" — a sentinel we catch to fold validation failures
+ * back into a { ok: false, error } result at the outer boundary. Using
+ * throw lets the deeply-nested parseWeight / parseTierOverride helpers
+ * bail out with a single message without every helper needing to return
+ * a Result type.
+ */
+class SaveValidationError extends Error {}
 function fail(message: string): never {
-  redirect(`/settings?error=${encodeURIComponent(message)}`);
+  throw new SaveValidationError(message);
 }
 
-export async function saveSettings(formData: FormData) {
+export async function saveSettings(
+  _prevState: SaveSettingsResult,
+  formData: FormData
+): Promise<SaveSettingsResult> {
+  try {
+    return await saveSettingsInner(formData);
+  } catch (err) {
+    if (err instanceof SaveValidationError) {
+      return { ok: false, error: err.message };
+    }
+    // Unexpected — re-throw so Next.js's error boundary handles it.
+    throw err;
+  }
+}
+
+async function saveSettingsInner(formData: FormData): Promise<SaveSettingsResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -39,8 +65,8 @@ export async function saveSettings(formData: FormData) {
   const radius = Number(formData.get("local_radius_miles"));
   const tolerance = formData.get("relocation_tolerance");
   if (typeof address !== "string" || !address.trim()) fail("Home address required");
-  if (!Number.isFinite(radius) || radius < 5 || radius > 500) {
-    fail("Radius must be between 5 and 500");
+  if (!Number.isFinite(radius) || radius < 5 || radius > 150) {
+    fail("Commutable radius must be between 5 and 150 miles");
   }
   if (
     typeof tolerance !== "string" ||
@@ -122,6 +148,8 @@ export async function saveSettings(formData: FormData) {
     fit_dist_tier_score_regional: distRegional,
     fit_dist_tier_score_domestic: distDomestic,
     fit_dist_tier_score_distant: distDistant,
+    combined_weight_fit: combinedWeightFit,
+    combined_weight_resume: combinedWeightResume,
   };
 
   // Fetch current profile to compare address — no API call if unchanged
@@ -153,8 +181,15 @@ export async function saveSettings(formData: FormData) {
     console.error("recomputeFitScoresForUser failed:", err);
   }
 
-  revalidatePath("/settings");
+  // Deliberately NOT revalidating /settings — the client form already
+  // holds the values the user just typed; refetching the RSC would send
+  // a fresh `profile` prop back through the form, which re-renders every
+  // uncontrolled <Input defaultValue={...}> and triggers a base-ui
+  // "changing default value on uncontrolled FieldControl" warning. The
+  // other three routes (inbox/pipeline/archive) still need revalidation
+  // because fit_score / recompute changes affect what they display.
   revalidatePath("/inbox");
   revalidatePath("/pipeline");
-  redirect("/settings?saved=1");
+  revalidatePath("/archive");
+  return { ok: true };
 }

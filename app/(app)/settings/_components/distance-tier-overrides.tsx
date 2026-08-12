@@ -42,6 +42,14 @@ const TIERS = [
 type TierKey = (typeof TIERS)[number]["key"];
 type Overrides = Record<TierKey, number | null>;
 
+/** Convert a DB-side 0..1 (numeric(3,2)) into a 0..100 slider integer, or null. */
+function fromDb(v: number | null | undefined): number | null {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : Number(v); // handles PostgREST string-numerics too
+  if (!Number.isFinite(n)) return null;
+  return Math.max(0, Math.min(100, Math.round(n * 100)));
+}
+
 /**
  * Advanced-mode expandable that reveals per-tier score sliders. Each
  * slider is 0–100; when null, the preset value for the currently-selected
@@ -68,12 +76,19 @@ export function DistanceTierOverrides({
   initialPreset: RelocationTolerance;
 }) {
   const [expanded, setExpanded] = useState(false);
-  const [preset, setPreset] = useState<RelocationTolerance>(initialPreset);
+  // Fallback to "regional" if the passed value isn't a known preset — defensive
+  // against any unexpected DB state (nulled column, migration lag, hand-edited row).
+  const [preset, setPreset] = useState<RelocationTolerance>(
+    initialPreset in PRESET_TIER_SCORES ? initialPreset : "regional"
+  );
+  // DB stores tier scores as numeric(3,2) in 0..1 range, but the sliders
+  // work in 0..100 integer space. Convert on load; the server action
+  // divides by 100 on save.
   const [overrides, setOverrides] = useState<Overrides>({
-    commutable: initialCommutable,
-    regional: initialRegional,
-    domestic: initialDomestic,
-    distant: initialDistant,
+    commutable: fromDb(initialCommutable),
+    regional: fromDb(initialRegional),
+    domestic: fromDb(initialDomestic),
+    distant: fromDb(initialDistant),
   });
 
   // Sync with the relocation_tolerance <select> in the parent form —
@@ -111,7 +126,8 @@ export function DistanceTierOverrides({
     setOverrides((prev) => ({ ...prev, [key]: null }));
   }
 
-  const presetScores = PRESET_TIER_SCORES[preset];
+  // Defense-in-depth in case preset somehow drifts to an unknown value.
+  const presetScores = PRESET_TIER_SCORES[preset] ?? PRESET_TIER_SCORES.regional;
 
   return (
     <div className="space-y-2">
