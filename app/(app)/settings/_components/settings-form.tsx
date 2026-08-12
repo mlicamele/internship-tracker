@@ -146,6 +146,7 @@ export function SettingsForm({
             initialDomestic={profile.fit_dist_tier_score_domestic}
             initialDistant={profile.fit_dist_tier_score_distant}
             initialPreset={profile.relocation_tolerance}
+            onDirty={() => setDirty(true)}
           />
         </div>
       </section>

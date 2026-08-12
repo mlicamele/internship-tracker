@@ -68,12 +68,21 @@ export function DistanceTierOverrides({
   initialDomestic,
   initialDistant,
   initialPreset,
+  onDirty,
 }: {
   initialCommutable: number | null;
   initialRegional: number | null;
   initialDomestic: number | null;
   initialDistant: number | null;
   initialPreset: RelocationTolerance;
+  /**
+   * Called after any user-driven change to a tier override. Slider drags
+   * already bubble native <input> change events to the parent form, but
+   * the per-tier "reset" is a button click that doesn't fire an input
+   * event — this callback fills that gap so the parent form's dirty state
+   * stays accurate.
+   */
+  onDirty?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   // Fallback to "regional" if the passed value isn't a known preset — defensive
@@ -120,10 +129,12 @@ export function DistanceTierOverrides({
   function updateOverride(key: TierKey, next: number) {
     const clamped = Math.max(0, Math.min(100, Math.round(next)));
     setOverrides((prev) => ({ ...prev, [key]: clamped }));
+    onDirty?.();
   }
 
   function resetOverride(key: TierKey) {
     setOverrides((prev) => ({ ...prev, [key]: null }));
+    onDirty?.();
   }
 
   // Defense-in-depth in case preset somehow drifts to an unknown value.
