@@ -28,10 +28,18 @@ export function FitWeightsControls({
   initialClassYear,
   initialDistance,
   initialInterest,
+  onDirty,
 }: {
   initialClassYear: number | null | undefined;
   initialDistance: number | null | undefined;
   initialInterest: number | null | undefined;
+  /**
+   * Called after any user-driven change. Slider drags fire native <input>
+   * change events that bubble to the parent form (which sets dirty=true),
+   * but preset-picker button clicks don't fire input events — this
+   * callback fills that gap so preset picks make Save enable.
+   */
+  onDirty?: () => void;
 }) {
   const [weights, setWeights] = useState<Weights>(() =>
     loadInitialWeights({
@@ -44,6 +52,7 @@ export function FitWeightsControls({
   function updateWeight(key: WeightKey, newValue: number) {
     const clamped = Math.max(1, Math.min(100, Math.round(newValue)));
     setWeights((current) => ({ ...current, [key]: clamped }));
+    onDirty?.();
   }
 
   const totalSum = weights.classYear + weights.distance + weights.interest;
@@ -57,6 +66,7 @@ export function FitWeightsControls({
       distance: p.distance,
       interest: p.interest,
     });
+    onDirty?.();
   }
 
   const activePreset =

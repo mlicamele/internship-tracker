@@ -193,6 +193,7 @@ export function SettingsForm({
           initialClassYear={profile.fit_weight_class_year}
           initialDistance={profile.fit_weight_distance}
           initialInterest={profile.fit_weight_interest}
+          onDirty={() => setDirty(true)}
         />
       </section>
 
