@@ -211,8 +211,10 @@ export async function ingestSimplifyListings(
   // Fetch profile once for fit-score computation across all app-creates this
   // run. Null profile → we skip fit-score persistence and rows land with
   // fit_score=null; the next profile-save action recomputes them.
+  progress("phase: get profile");
   const scoringProfile = await getProfile(supabase, userId);
 
+  progress("phase: fetch upstream listings");
   const fetchResult = await fetchSimplifySummerListings(opts.overrideUrl);
   summary.fetched = fetchResult.fetched;
   summary.filtered_out = fetchResult.filtered_out;
@@ -224,11 +226,13 @@ export async function ingestSimplifyListings(
     `fetched=${summary.fetched} matched_filter=${rows.length} filtered_out=${summary.filtered_out} malformed=${summary.skipped_malformed}`
   );
 
+  progress("phase: load existing roles");
   const existingRoleMap = await loadExistingRoles(
     supabase,
     rows.map((r) => r.id)
   );
   summary.matched_existing = existingRoleMap.size;
+  progress(`phase: loaded ${summary.matched_existing} existing roles`);
 
   const newRows: SimplifyRow[] = [];
   const existingRows: { row: SimplifyRow; existing: { id: string; title: string; locations: RoleLocation[] } }[] = [];
@@ -271,11 +275,13 @@ export async function ingestSimplifyListings(
   // Load existing applications for the ROLES we already know about, so
   // reappearing catalog rows don't dupe an application. New-role rows can't
   // have applications yet by definition.
+  progress("phase: load existing applications");
   const existingApplicationRoleIds = await loadExistingApplicationRoleIds(
     supabase,
     userId,
     Array.from(existingRoleMap.values()).map((r) => r.id)
   );
+  progress(`phase: loaded ${existingApplicationRoleIds.size} existing apps`);
   // For each already-existing role in this fetch, ensure an application row
   // exists (only creates one if user has never seen this role).
   for (const { existing } of existingRows) {
@@ -316,6 +322,9 @@ export async function ingestSimplifyListings(
   }
 
   // ---------- 3. Extract + create new roles (concurrency-limited) ----------
+  progress(
+    `phase: extract new roles (${toExtract.length} candidates, ${Math.ceil(toExtract.length / concurrency)} batches, concurrency=${concurrency})`
+  );
   const batches = chunk(toExtract, concurrency);
   let batchesRun = 0;
   // Set when any row's LLM extraction gets refused for a Groq rate-limit
@@ -356,7 +365,11 @@ export async function ingestSimplifyListings(
       batch.map(async (row) => {
         try {
           progress(`extract ${row.company_name}: ${row.title}`);
+          const scrapeStart = Date.now();
           const extracted = await scrapeUrl(row.url);
+          progress(
+            `extract done ${row.company_name}: ${row.title} (${Date.now() - scrapeStart}ms, rate_limited=${extracted.rate_limited})`
+          );
 
           // Rate-limit refusal: no usable data came back. Do NOT persist a
           // half-empty role — defer to tomorrow's run. Flag so the outer

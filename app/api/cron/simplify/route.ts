@@ -56,12 +56,26 @@ export async function POST(req: NextRequest) {
 
   const supabase = createServiceClient();
 
+  const t0 = Date.now();
+  const log = (msg: string) =>
+    console.log(`[cron ${Math.round((Date.now() - t0) / 100) / 10}s] ${msg}`);
+
+  log("start");
+
   try {
     const summary = await ingestSimplifyListings(supabase, userId, {
       maxNewExtractions: MAX_NEW_PER_RUN,
       concurrency: 3,
       wallClockBudgetMs: WALL_CLOCK_BUDGET_MS,
+      // Surface ingest's internal progress markers into the Vercel Functions
+      // log so we can see which phase stalls when the function times out.
+      // Without this, a 504 gives us nothing but the timeout itself.
+      onProgress: log,
     });
+
+    log(
+      `done new_roles=${summary.new_roles} new_apps=${summary.new_applications} deferred=${summary.deferred} errors=${summary.extraction_errors.length}`
+    );
 
     if (summary.new_applications > 0 || summary.updated_roles > 0) {
       revalidatePath("/inbox");
@@ -71,6 +85,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, ...summary });
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown error";
+    log(`error: ${message}`);
     return NextResponse.json({ ok: false, error: message }, { status: 500 });
   }
 }
