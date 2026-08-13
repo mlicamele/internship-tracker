@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
@@ -17,6 +18,7 @@ const INITIAL: UploadResumeResult = { ok: true, label: "" };
  * the settings-save UX rework from commit 5c2bcda.
  */
 export function ResumeUploadForm() {
+  const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   const [state, formAction, pending] = useActionState(uploadResumeAction, INITIAL);
   const [hasFile, setHasFile] = useState(false);
@@ -24,16 +26,19 @@ export function ResumeUploadForm() {
   // Post-success affordance: brief emerald ✓ for 1.5s, then reset. Matches
   // SettingsForm's justSaved pattern. Also clears the form so a second
   // upload starts fresh instead of re-submitting the same file.
+  // router.refresh() forces the parent server component to re-render with
+  // fresh data so the new resume appears in the list without a page reload.
   const [justUploaded, setJustUploaded] = useState<string | null>(null);
   useEffect(() => {
     if (state.ok && "label" in state && state.label && !pending) {
       setJustUploaded(state.label);
       setHasFile(false);
       formRef.current?.reset();
+      router.refresh();
       const t = setTimeout(() => setJustUploaded(null), 1500);
       return () => clearTimeout(t);
     }
-  }, [state, pending]);
+  }, [state, pending, router]);
 
   const showError = !state.ok && "error" in state;
 

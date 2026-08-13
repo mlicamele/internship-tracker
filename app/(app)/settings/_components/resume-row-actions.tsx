@@ -1,6 +1,7 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useEffect, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   deleteResumeAction,
@@ -28,6 +29,7 @@ export function ResumeRowActions({
   isMain: boolean;
   isOnlyResume: boolean;
 }) {
+  const router = useRouter();
   const [setMainState, setMainAction, setMainPending] = useActionState(
     setMainResumeAction,
     INITIAL
@@ -36,6 +38,35 @@ export function ResumeRowActions({
     deleteResumeAction,
     INITIAL
   );
+
+  // revalidatePath() in the server action invalidates the RSC cache, but
+  // Next.js doesn't automatically re-fetch the CURRENT page — the router
+  // keeps rendering the stale cached tree until something forces a
+  // re-fetch. router.refresh() does exactly that. Set-as-main updates the
+  // Main badge on OTHER rows too (they need to re-render with is_main =
+  // false), which is where the delete path was accidentally getting away
+  // with it: React reconciliation removes the deleted row's DOM even
+  // though the parent's `versions` prop hasn't refreshed. For set-as-main
+  // the row's is_main property MUST refresh from server data or the badge
+  // stays wrong.
+  //
+  // Fire on the pending true → false transition specifically, so the
+  // initial mount (INITIAL is `{ok: true}`) doesn't trigger an unwanted
+  // refresh loop.
+  const prevSetMainPending = useRef(false);
+  useEffect(() => {
+    if (prevSetMainPending.current && !setMainPending && setMainState.ok) {
+      router.refresh();
+    }
+    prevSetMainPending.current = setMainPending;
+  }, [setMainState, setMainPending, router]);
+  const prevDeletePending = useRef(false);
+  useEffect(() => {
+    if (prevDeletePending.current && !deletePending && deleteState.ok) {
+      router.refresh();
+    }
+    prevDeletePending.current = deletePending;
+  }, [deleteState, deletePending, router]);
 
   const errorMsg =
     (!setMainState.ok && "error" in setMainState && setMainState.error) ||
