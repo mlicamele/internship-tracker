@@ -145,15 +145,30 @@ export async function deleteResumeAction(formData: FormData) {
   if (!target) fail("Resume not found");
 
   // Invariant: user must always have at least one main resume — scoring
-  // relies on it. Block deleting the last one; user must upload a
-  // replacement first. (Non-last main can still be deleted after another
-  // resume is promoted to main via the next check.)
+  // relies on it. Only block deletion when this is the LAST resume; when
+  // deleting the current main and others exist, auto-promote the most
+  // recently uploaded remaining resume so the user never has to think
+  // about it.
   if (versions.length === 1) {
     fail("Upload a replacement before deleting your only resume");
   }
 
-  if (target.is_main === true && versions.length > 1) {
-    fail("Set another resume as main before deleting this one");
+  if (target.is_main === true) {
+    // listResumeVersions orders by uploaded_at DESC → the first non-target
+    // row is the newest survivor. Promote it BEFORE deleting the current
+    // main so we never have zero rows with is_main=TRUE.
+    const successor = versions.find((r) => r.id !== id);
+    if (!successor) {
+      // Defensive — versions.length > 1 was true at this point but just in
+      // case (e.g., race with another delete), refuse rather than corrupt.
+      fail("Could not find another resume to promote as main");
+    }
+    try {
+      await setMainResumeVersion(supabase, user.id, successor.id);
+    } catch (err) {
+      console.error("auto-promote before delete-main failed:", err);
+      fail("Could not promote a replacement main; delete aborted");
+    }
   }
 
   await deleteResumeVersion(supabase, user.id, id);
