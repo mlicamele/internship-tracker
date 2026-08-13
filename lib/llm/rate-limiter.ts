@@ -31,6 +31,19 @@ let lock: Promise<unknown> = Promise.resolve();
 let lastCallEndedAt = 0;
 
 /**
+ * Test-only reset of the serializer's in-flight state. Vitest tests that
+ * swap between real and fake timers otherwise deadlock — `lastCallEndedAt`
+ * carries over as a real-time timestamp, and after `vi.useFakeTimers()`
+ * flips Date.now() to fake-epoch 0, the subtraction yields a huge `wait`
+ * and `setTimeout` under fake timers never fires. Not part of the public
+ * API.
+ */
+export function _resetSerializerForTests(): void {
+  lock = Promise.resolve();
+  lastCallEndedAt = 0;
+}
+
+/**
  * Run `fn` serially with respect to all other Groq calls in this process.
  * Waits for the prior call to finish, then enforces a minimum gap since
  * the last call ended. Preserves `fn`'s return + throw behavior.
@@ -139,6 +152,58 @@ export function _resetUsageForTests(): void {
   usageByModel.clear();
 }
 
+// ============================================================
+// Fast-fail cooldown after a recent rate-limit — batch-stall guard.
+// ============================================================
+//
+// Problem: `serializeGroqCall` runs concurrent Promise.all siblings strictly
+// serially (single-slot lock). When TPD is already exhausted at the top of a
+// cron run, row 1's call 429s → SDK retries with exponential backoff (~30s
+// per failed call at the current `maxRetries: 4`) → row 2 was already queued
+// in the lock chain and starts *immediately* when row 1's promise releases,
+// with no way to react to the 429 that just happened. Row 2 burns another
+// ~30s. Vercel kills the function at 60s. The between-batch abort in the
+// caller (see ingest.ts's `rateLimitHit`) doesn't help because we never
+// reach the between-batch check.
+//
+// Fix: any 429 sets `recentRateLimitAt`. Callers check
+// `shouldFastFailForRateLimit()` BEFORE entering `serializeGroqCall`. Within
+// the cooldown window, subsequent calls skip Groq entirely and return SAFE
+// defaults in microseconds instead of ~30s. Batch 1 collapses from ~90s
+// (3 × 30s serial retries) to ~30s (real 429 + microsecond fast-fails).
+//
+// Cooldown is intentionally short (30s) so an interactive paste_url call
+// arriving after a TPM squeeze has cleared can attempt Groq again. TPD walls
+// last hours, but a longer cooldown would harm interactive resilience under
+// transient TPM squeezes. If the fast-fail proves too aggressive we can key
+// by model/limitKind (TPD → longer, TPM → shorter).
+
+const RATE_LIMIT_FAST_FAIL_COOLDOWN_MS = 30_000;
+let recentRateLimitAt: number | null = null;
+
+/** Note that a Groq call was just refused for rate-limit reasons. */
+export function noteRateLimit(): void {
+  recentRateLimitAt = Date.now();
+}
+
+/**
+ * True if a rate-limit was noted within the last COOLDOWN window.
+ * Callers that batch (e.g. `Promise.all(rows.map(scrapeUrl))`) should skip
+ * the actual Groq call and return a rate-limited-shaped safe default so
+ * queued siblings don't each burn the SDK's retry-backoff budget.
+ */
+export function shouldFastFailForRateLimit(): boolean {
+  return (
+    recentRateLimitAt !== null &&
+    Date.now() - recentRateLimitAt < RATE_LIMIT_FAST_FAIL_COOLDOWN_MS
+  );
+}
+
+/** Test-only reset. Not part of the module's public API contract. */
+export function _resetRateLimitFastFailForTests(): void {
+  recentRateLimitAt = null;
+}
+
 /**
  * Cheap heuristic to detect whether an error caught inside a Groq call
  * wrapper looks like a rate-limit refusal. Used by the `never-throws`
@@ -148,9 +213,11 @@ export function _resetUsageForTests(): void {
  */
 export function isRateLimitError(err: unknown): boolean {
   if (!err) return false;
+  if (err instanceof RateLimitFastFailError) return true;
   const anyErr = err as { status?: number; message?: string; name?: string };
   if (anyErr.status === 429) return true;
   if (anyErr.name === "RateLimitError") return true;
+  if (anyErr.name === "RateLimitFastFailError") return true;
   const msg = String(anyErr.message ?? "").toLowerCase();
   return (
     msg.includes("rate limit") ||
@@ -158,6 +225,23 @@ export function isRateLimitError(err: unknown): boolean {
     msg.includes("tokens per day") ||
     msg.includes("tokens per minute")
   );
+}
+
+/**
+ * Thrown when a queued Groq caller acquires `serializeGroqCall`'s lock only
+ * to find that another caller within the cooldown window just 429'd. Callers
+ * catch this the same way they catch a real 429 — never-throws contract is
+ * preserved, `isRateLimitError` returns true, and the outer wrapper's SAFE
+ * default (with `rate_limited: true`) is returned to the user.
+ *
+ * Distinguishes from a "real" 429 for debugging: prod logs show whether we
+ * short-circuited (this class) vs actually hit Groq's rate-limit response.
+ */
+export class RateLimitFastFailError extends Error {
+  constructor() {
+    super("skipped: rate-limit fast-fail after serializer lock");
+    this.name = "RateLimitFastFailError";
+  }
 }
 
 /**

@@ -58,6 +58,7 @@ function emptyResult(url: string): ScrapeResult {
     confidences: {},
     overall_confidence: 0,
     notes: "no evidence gathered",
+    rate_limited: false,
     thin: true,
     evidence_sources: [],
   };

@@ -21,6 +21,9 @@ import {
   parseRateLimit,
   formatRateLimit,
   recordTokenUsage,
+  noteRateLimit,
+  shouldFastFailForRateLimit,
+  RateLimitFastFailError,
 } from "./rate-limiter";
 import { MODEL_TPD } from "./limits";
 
@@ -50,6 +53,14 @@ export interface ExtractedJob {
   confidences: Record<string, ConfidenceTier>;
   overall_confidence: number;
   notes: string;
+  /**
+   * True when the LLM call was refused by Groq for a rate-limit reason
+   * (TPD/TPM/RPD/RPM). Callers that batch extractions — chiefly the
+   * simplify cron — use this to abort the remaining batches and defer
+   * work, instead of continuing to retry-with-backoff and blowing the
+   * Vercel function timeout. Preserves the never-throws contract.
+   */
+  rate_limited: boolean;
 }
 
 const SAFE_DEFAULT: ExtractedJob = {
@@ -71,6 +82,7 @@ const SAFE_DEFAULT: ExtractedJob = {
   confidences: {},
   overall_confidence: 0,
   notes: "extraction failed",
+  rate_limited: false,
 };
 
 const TARGET_SEASON_VALUES = new Set(["summer", "fall", "winter", "spring"]);
@@ -352,9 +364,32 @@ export async function extractJobFromEvidence(
     };
   }
 
+  // Fast-fail if a recent Groq call was refused for rate-limit reasons.
+  // Early check for callers arriving fresh (not queued behind another call).
+  if (shouldFastFailForRateLimit()) {
+    return {
+      ...SAFE_DEFAULT,
+      jd_url: input.url,
+      notes: "skipped: recent Groq rate-limit within cooldown window",
+      rate_limited: true,
+    };
+  }
+
   try {
-    const completion = await serializeGroqCall(() =>
-      client().chat.completions.create({
+    // Post-lock recheck: three concurrent Promise.all siblings all pass the
+    // early check simultaneously at t≈0. Inside serializeGroqCall's
+    // single-slot lock they execute strictly serially; if row 1 hits a 429
+    // and calls `noteRateLimit()`, rows 2/3 (already past the early check,
+    // now waiting on the lock) MUST recheck the cooldown flag before
+    // actually calling Groq. Without this, three siblings each burn ~30s
+    // of SDK retry-backoff, blowing Vercel's 60s function cap. Throwing
+    // RateLimitFastFailError inside the callback routes through the same
+    // catch-block-returns-SAFE_DEFAULT path as a real 429.
+    const completion = await serializeGroqCall(async () => {
+      if (shouldFastFailForRateLimit()) {
+        throw new RateLimitFastFailError();
+      }
+      return client().chat.completions.create({
         model: MODEL_FOR.extraction,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
@@ -363,8 +398,8 @@ export async function extractJobFromEvidence(
         temperature: 0,
         max_tokens: 4000,
         response_format: { type: "json_object" },
-      })
-    );
+      });
+    });
 
     // Feed token usage to the tracker so we get an 80%-TPD warning
     // before the next call gets 429'd. Silently no-op if the SDK ever
@@ -430,6 +465,7 @@ export async function extractJobFromEvidence(
       confidences: parseConfidencesMap(parsed.confidences),
       overall_confidence: parseConfidence(parsed.overall_confidence),
       notes: typeof parsed.notes === "string" ? parsed.notes : "",
+      rate_limited: false,
     };
 
     // Safety net for a specific LLM failure mode: on compound phrases like
@@ -443,7 +479,11 @@ export async function extractJobFromEvidence(
     result.confidences = filterConfidencesToPopulated(result);
     return result;
   } catch (err) {
-    if (isRateLimitError(err)) {
+    const rateLimited = isRateLimitError(err);
+    if (rateLimited) {
+      // Mark the cooldown window so queued siblings + future arrivals skip
+      // the SDK retry-backoff. See rate-limiter.ts for design notes.
+      noteRateLimit();
       console.warn(
         `[groq-rate-limit] extractJobFromEvidence: ${formatRateLimit(parseRateLimit(err))}`
       );
@@ -452,6 +492,7 @@ export async function extractJobFromEvidence(
       ...SAFE_DEFAULT,
       jd_url: input.url,
       notes: err instanceof Error ? err.message : "extract error",
+      rate_limited: rateLimited,
     };
   }
 }

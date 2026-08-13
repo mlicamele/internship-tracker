@@ -318,7 +318,24 @@ export async function ingestSimplifyListings(
   // ---------- 3. Extract + create new roles (concurrency-limited) ----------
   const batches = chunk(toExtract, concurrency);
   let batchesRun = 0;
+  // Set when any row's LLM extraction gets refused for a Groq rate-limit
+  // reason (TPD/TPM/…). The outer loop checks this at the top of each
+  // batch iteration and rolls remaining unstarted rows into `deferred` —
+  // SDK retry-with-backoff on a 429'd call burns ~30s per attempt, and
+  // three of those in one batch will blow the Vercel 60s cap before the
+  // wall-clock check between batches can catch it. Bailing on the first
+  // rate-limit is cheaper than heroically continuing.
+  let rateLimitHit = false;
   for (const batch of batches) {
+    if (rateLimitHit) {
+      const remaining = batches.slice(batchesRun).reduce((n, b) => n + b.length, 0);
+      summary.extracted_now -= remaining;
+      summary.deferred += remaining;
+      progress(
+        `[cron-tpd-abort] deferring ${remaining} unstarted extractions after rate-limit hit`
+      );
+      break;
+    }
     // Wall-clock budget: if we're over the deadline, roll the remaining
     // batches into `deferred`. In-flight geocoding is throttled 1.5s per
     // call and can push a batch to ~15s wall-clock, so we bail EARLY.
@@ -340,6 +357,22 @@ export async function ingestSimplifyListings(
         try {
           progress(`extract ${row.company_name}: ${row.title}`);
           const extracted = await scrapeUrl(row.url);
+
+          // Rate-limit refusal: no usable data came back. Do NOT persist a
+          // half-empty role — defer to tomorrow's run. Flag so the outer
+          // loop stops queuing new batches. Concurrent Promise.all siblings
+          // still finish (they're already in flight); each one that also
+          // 429s does the same per-row accounting for itself.
+          if (extracted.rate_limited) {
+            rateLimitHit = true;
+            summary.extracted_now--;
+            summary.deferred++;
+            progress(
+              `[cron-tpd-abort] rate-limited on ${row.id} (${row.company_name}); row deferred`
+            );
+            return;
+          }
+
           // Rough token estimate: the LLM sees ~ jd_body + ~2K static prompt.
           // Divide char count by 4 for the token approximation. Accumulated
           // to make cron logs surface projected daily budget usage without a

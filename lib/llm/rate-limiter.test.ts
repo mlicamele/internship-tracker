@@ -3,8 +3,11 @@ import {
   formatRateLimit,
   getUsageSnapshot,
   isRateLimitError,
+  noteRateLimit,
   parseRateLimit,
   recordTokenUsage,
+  shouldFastFailForRateLimit,
+  _resetRateLimitFastFailForTests,
   _resetUsageForTests,
 } from "./rate-limiter";
 
@@ -190,5 +193,47 @@ describe("formatRateLimit", () => {
     expect(formatRateLimit(parseRateLimit(new Error("boom")))).toBe(
       "not a rate-limit error"
     );
+  });
+});
+
+// Fast-fail cooldown — guards concurrent Promise.all siblings from each
+// burning ~30s in SDK retry-backoff after one call 429s. See rate-limiter.ts
+// for the design + the LOG entry dated 2026-08-13.
+describe("shouldFastFailForRateLimit", () => {
+  beforeEach(() => {
+    _resetRateLimitFastFailForTests();
+    vi.useRealTimers();
+  });
+
+  it("is false before any rate-limit has been noted", () => {
+    expect(shouldFastFailForRateLimit()).toBe(false);
+  });
+
+  it("becomes true immediately after noteRateLimit()", () => {
+    noteRateLimit();
+    expect(shouldFastFailForRateLimit()).toBe(true);
+  });
+
+  it("stays true within the 30s cooldown window", () => {
+    vi.useFakeTimers();
+    noteRateLimit();
+    vi.advanceTimersByTime(29_000);
+    expect(shouldFastFailForRateLimit()).toBe(true);
+  });
+
+  it("expires after the 30s cooldown window", () => {
+    vi.useFakeTimers();
+    noteRateLimit();
+    vi.advanceTimersByTime(30_001);
+    expect(shouldFastFailForRateLimit()).toBe(false);
+  });
+
+  it("re-arms on subsequent noteRateLimit() calls", () => {
+    vi.useFakeTimers();
+    noteRateLimit();
+    vi.advanceTimersByTime(31_000);
+    expect(shouldFastFailForRateLimit()).toBe(false);
+    noteRateLimit();
+    expect(shouldFastFailForRateLimit()).toBe(true);
   });
 });
