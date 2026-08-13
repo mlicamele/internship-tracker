@@ -1,41 +1,42 @@
 /**
  * Resume PDF text extraction.
  *
- * Loads `pdf-parse` lazily via dynamic import — the module and its
- * `pdfjs-dist` dependency reach for browser globals (specifically
- * `DOMMatrix`) at module init, which are undefined in Node runtimes
- * on Vercel. A top-level `import` triggers the crash on any route that
- * imports THIS file's caller chain (notably /settings → ResumeSection
- * → resume-actions → parse), even if the user never uploads a PDF.
+ * Uses `unpdf` — a serverless-native fork of pdfjs-dist with the browser
+ * globals (`DOMMatrix`, `ImageData`, `Path2D`) polyfilled internally so the
+ * package works on Vercel's Node runtime. Replaces the earlier `pdf-parse`
+ * dependency which pulled in raw `pdfjs-dist` and crashed at module init on
+ * `ReferenceError: DOMMatrix is not defined`.
  *
- * Dynamic-importing here defers the load until parseResumePdf() is
- * actually called (upload path only), so the /settings render succeeds.
- * See Vercel error: `ReferenceError: DOMMatrix is not defined` at
- * externalImport for pdf-parse.
+ * Kept as a dynamic import inside the function body so the ~1MB bundled
+ * pdfjs isn't loaded on every `/settings` render — only when a user
+ * actually uploads a PDF. Loading is cheap enough (~50-100ms) that this
+ * defer is more about page-load latency than crash-avoidance.
  */
 
 export async function parseResumePdf(
   bytes: Buffer
 ): Promise<{ text: string; pageCount: number }> {
-  // Lazy — see file-level comment. Do NOT hoist to a top-level import.
-  const { PDFParse } = await import("pdf-parse");
+  const { extractText, getDocumentProxy } = await import("unpdf");
 
-  let result;
+  let totalPages: number;
+  let rawText: string;
   try {
-    const parser = new PDFParse({ data: new Uint8Array(bytes) });
-    result = await parser.getText();
-    await parser.destroy();
+    const pdf = await getDocumentProxy(new Uint8Array(bytes));
+    // With mergePages: true, unpdf's typed overload guarantees text: string.
+    const result = await extractText(pdf, { mergePages: true });
+    totalPages = result.totalPages;
+    rawText = result.text;
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(`Could not parse PDF: ${detail}`);
   }
 
-  const text = normalizeText(result.text ?? "");
+  const text = normalizeText(rawText);
   if (!text) {
     throw new Error("Resume PDF contained no extractable text (image-only?)");
   }
 
-  return { text, pageCount: result.total ?? 0 };
+  return { text, pageCount: totalPages };
 }
 
 function normalizeText(raw: string): string {
