@@ -1,8 +1,8 @@
 // Process-wide single-slot lock for Groq calls.
 //
-// Rationale: all three active models cap at 30 RPM on free tier
-// (llama-3.3-70b-versatile for extraction, gpt-oss-20b for scoring,
-// 8b-instant for classification — see model.ts + limits.ts). Each has
+// Rationale: all active models cap at 30 RPM on free tier
+// (llama-3.3-70b-versatile for extraction + scoring, gpt-oss-120b for
+// classification — see model.ts + limits.ts). Each has
 // independent server-side per-minute + per-day buckets — calls to
 // different models don't compete for the same TPM. But we still enforce
 // a process-wide serializer so:

@@ -677,51 +677,89 @@ Examples:
 export interface ClassifyRoleTagsInput {
   company: string | null;
   title: string;
-  body: string;
 }
 
-/** Classify an existing role by title + body only. Returns [] on error. Never throws. */
+const CLASSIFY_MAX_ATTEMPTS = 3;
+
+// Robust check for Groq's post-validation 400. Reads structured shape first,
+// falls back to err.message (which groq-sdk always populates verbatim with the
+// response body). Avoids JSON.stringify(err) which is fragile to SDK internals
+// and can throw on error objects with circular refs / throwing getters —
+// both would break the never-throws contract on `classifyRoleTags`.
+function isJsonValidationError(err: unknown): boolean {
+  if (typeof err !== "object" || err === null) return false;
+  const e = err as { status?: number; error?: { error?: { code?: string } }; message?: string };
+  if (e.status !== 400) return false;
+  if (e.error?.error?.code === "json_validate_failed") return true;
+  return typeof e.message === "string" && e.message.includes("json_validate_failed");
+}
+
+/**
+ * Classify a role by title + company. Returns [] on error. Never throws.
+ * Body is intentionally NOT sent — 2026-08-13 real-DB verification found
+ * that scraped JD bodies (often company boilerplate or careers-page
+ * landing text) dilute the title+company signal on all tested models,
+ * with no measurable quality benefit even on gpt-oss-120b.
+ * Retries up to 3× on Groq's 400 json_validate_failed (gpt-oss reasoning
+ * models occasionally emit thinking tokens before JSON, tripping the
+ * strict json_object validator; temp=0 non-determinism means retries
+ * often succeed).
+ *
+ * NOTE: TAGS_SYSTEM_PROMPT still contains "body may be thin / off-topic"
+ * guidance from the pre-2026-08-13 shape. The clauses now function as
+ * "don't wait for body context, tag from title+company" — semantically
+ * aligned with the no-body input. Cleanup deferred; the current prompt
+ * was verified against 25 real DB roles (11/18 empty→hit, 2/7 regress).
+ * Any prompt edit should be verified against the same real-data sample
+ * before merging — per the "invented-case verification is a trap" lesson.
+ */
 export async function classifyRoleTags(
   input: ClassifyRoleTagsInput
 ): Promise<string[]> {
   const parts: string[] = [];
   if (input.company) parts.push(`Company: ${input.company}`);
   parts.push(`Title: ${input.title}`);
-  if (input.body) parts.push(`\nJD body:\n${input.body.slice(0, MAX_BODY_CHARS)}`);
   const user = parts.join("\n");
 
-  try {
-    const completion = await serializeGroqCall(() =>
-      client().chat.completions.create({
-        model: MODEL_FOR.classification,
-        messages: [
-          { role: "system", content: TAGS_SYSTEM_PROMPT },
-          { role: "user", content: user },
-        ],
-        temperature: 0,
-        max_tokens: 200,
-        response_format: { type: "json_object" },
-      })
-    );
-    if (completion.usage?.total_tokens) {
-      recordTokenUsage(
-        MODEL_FOR.classification,
-        completion.usage.total_tokens,
-        MODEL_TPD[MODEL_FOR.classification]
+  for (let attempt = 1; attempt <= CLASSIFY_MAX_ATTEMPTS; attempt++) {
+    try {
+      const completion = await serializeGroqCall(() =>
+        client().chat.completions.create({
+          model: MODEL_FOR.classification,
+          messages: [
+            { role: "system", content: TAGS_SYSTEM_PROMPT },
+            { role: "user", content: user },
+          ],
+          temperature: 0,
+          max_tokens: 200,
+          response_format: { type: "json_object" },
+        })
       );
+      if (completion.usage?.total_tokens) {
+        recordTokenUsage(
+          MODEL_FOR.classification,
+          completion.usage.total_tokens,
+          MODEL_TPD[MODEL_FOR.classification]
+        );
+      }
+      const text = completion.choices[0]?.message?.content;
+      if (!text) return [];
+      const match = text.match(/\{[\s\S]*\}/);
+      if (!match) return [];
+      const parsed = JSON.parse(match[0]) as Record<string, unknown>;
+      return parseTags(parsed.tags);
+    } catch (err) {
+      if (isRateLimitError(err)) {
+        console.warn(
+          `[groq-rate-limit] classifyRoleTags: ${formatRateLimit(parseRateLimit(err))}`
+        );
+        return [];
+      }
+      if (isJsonValidationError(err) && attempt < CLASSIFY_MAX_ATTEMPTS) {
+        continue;
+      }
+      return [];
     }
-    const text = completion.choices[0]?.message?.content;
-    if (!text) return [];
-    const match = text.match(/\{[\s\S]*\}/);
-    if (!match) return [];
-    const parsed = JSON.parse(match[0]) as Record<string, unknown>;
-    return parseTags(parsed.tags);
-  } catch (err) {
-    if (isRateLimitError(err)) {
-      console.warn(
-        `[groq-rate-limit] classifyRoleTags: ${formatRateLimit(parseRateLimit(err))}`
-      );
-    }
-    return [];
   }
+  return [];
 }

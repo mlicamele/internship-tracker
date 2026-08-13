@@ -20,13 +20,14 @@ export const GROQ_LIMITS = {
  * Per-model daily token budgets (free tier). Used by recordTokenUsage()
  * in rate-limiter.ts to warn before we exhaust a specific model's TPD.
  * Keys match MODEL_FOR values. Extend when adding a new model to MODEL_FOR.
- * Source: Groq console model catalog (verified 2026-08-12).
+ * Source: Groq console model catalog (verified 2026-08-13).
+ * Note: llama-3.1-8b-instant was deprecated by Groq 2026-08; classification
+ * moved through openai/gpt-oss-20b briefly and ultimately to openai/gpt-oss-120b
+ * (see model.ts for the full progression).
  */
 export const MODEL_TPD: Readonly<Record<string, number>> = {
   "llama-3.3-70b-versatile": 100_000,
-  "openai/gpt-oss-20b": 200_000,
   "openai/gpt-oss-120b": 200_000,
-  "llama-3.1-8b-instant": 500_000,
 } as const;
 
 /**
@@ -56,6 +57,14 @@ export const AUTOMATED_DAILY_BUDGET = {
 
 /** Empirical average tokens per Simplify extraction (JD body dominates the count). */
 export const AVG_TOKENS_PER_EXTRACTION = 8_000;
+/**
+ * Classification sends only title + company (no JD body since 2026-08-13).
+ * Base call: ~1150 tokens system prompt + ~50 tokens user + up to 200 output ≈ 1400/call.
+ * With gpt-oss-120b's ~35% json_validate_failed retry rate (see classifyRoleTags),
+ * true average server-side burn is ~1400 × 1.35 ≈ 1900. Rounded to 2000 for slack.
+ * Used by scripts/backfill-role-tags.ts's --allow-heavy-run pre-flight guard —
+ * accurate here matters or the guard silently passes runs that blow TPD.
+ */
 export const AVG_TOKENS_PER_TAG_CLASSIFY = 2_000;
 
 /**

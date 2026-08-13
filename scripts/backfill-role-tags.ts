@@ -1,7 +1,7 @@
 /**
  * One-off backfill: classify every existing role with tags from the
  * INTEREST_TAGS vocabulary. Uses the cheap `classifyRoleTags` helper
- * (title + jd_body_text → 0-4 tags via Groq / Llama 4 Scout).
+ * (title + company → 0-3 tags via Groq gpt-oss-120b).
  *
  * Idempotent — by default skips roles that already have >=1 tag.
  * Pass --force to re-classify all roles (overwrites existing tags).
@@ -28,7 +28,6 @@ dotenvConfig({ path: resolve(process.cwd(), ".env.local") });
 interface Row {
   id: string;
   title: string;
-  jd_body_text: string | null;
   tags: string[];
   extraction_snapshot: {
     values?: Record<string, unknown>;
@@ -66,7 +65,7 @@ async function main() {
   const { data, error } = await s
     .from("roles")
     .select(
-      "id, title, jd_body_text, tags, extraction_snapshot, extraction_confidences, company:companies(name)"
+      "id, title, tags, extraction_snapshot, extraction_confidences, company:companies(name)"
     );
   if (error) throw error;
   const all = (data ?? []) as unknown as Row[];
@@ -77,8 +76,8 @@ async function main() {
   );
 
   // Pre-flight budget check. Tag classification is cheaper per call than a
-  // full extraction (~2K tokens vs 8K) but a large --force run could still
-  // eat meaningful budget.
+  // full extraction (~2K tokens vs 8K, per AVG_TOKENS_PER_TAG_CLASSIFY)
+  // but a large --force run could still eat meaningful budget.
   if (!dryRun && targets.length > 0) {
     const { estimateBatchCost, AUTOMATED_DAILY_BUDGET, GROQ_LIMITS, AVG_TOKENS_PER_TAG_CLASSIFY } =
       await import("../lib/llm/limits");
@@ -102,7 +101,6 @@ async function main() {
     const tags = await classifyRoleTags({
       company: companyName,
       title: row.title,
-      body: row.jd_body_text ?? "",
     });
 
     const line = `${row.id}  ${companyName ?? "?"} / ${row.title}`.slice(0, 90);

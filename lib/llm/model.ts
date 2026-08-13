@@ -51,11 +51,21 @@ export const MODEL_FOR = {
   scoring: "llama-3.3-70b-versatile",
 
   /**
-   * JD title + body → 1-3 tags from a closed vocabulary. Bounded
-   * output, cheapest task. 8B Instant is very fast and has a separate
-   * 500K TPD budget that we barely touch.
+   * Role title + company → 1-3 tags from a closed vocabulary. Bounded
+   * output, cheapest task. Progression:
+   *   - llama-3.1-8b-instant — original, deprecated by Groq 2026-08.
+   *   - openai/gpt-oss-20b — tried post-deprecation. Empirically worse
+   *     than 8B: 3/7 regressions on tagged real roles (2026-08-13
+   *     verification), non-determinism at temp=0 on identical inputs,
+   *     hedges to [] on obvious cases (Akuna/SWE C++, Radix/Quant).
+   *   - openai/gpt-oss-120b (current) — same 200K TPD envelope as 20b
+   *     (isolation preserved from the 70B extraction/scoring pool),
+   *     6x the parameters. Fits our ~2.5K classification payload
+   *     under the 8K TPM per-request cap. Verified against 25 real
+   *     roles to confirm classification quality is materially better
+   *     than 20b before shipping.
    */
-  classification: "llama-3.1-8b-instant",
+  classification: "openai/gpt-oss-120b",
 } as const;
 
 export type LlmTask = keyof typeof MODEL_FOR;
