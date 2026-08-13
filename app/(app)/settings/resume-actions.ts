@@ -115,15 +115,14 @@ export async function uploadResumeAction(
     };
   }
 
-  // First-ever upload auto-promotes to main. Any application without an
-  // explicit resume_version_id now resolves to this new resume, so score.
-  // Non-throwing — the upload itself already succeeded on Groq errors.
+  // First-ever upload auto-promotes to main. Fire-and-forget the rescore
+  // for the same reason as setMainResumeAction: N sequential Groq calls
+  // under retry-backoff can blow the Vercel 60s cap. Any scored apps that
+  // don't complete before the function ends keep their prior state.
   if (isFirst) {
-    try {
-      await rescoreResumeFitForUserMaster(supabase, user.id);
-    } catch (err) {
+    rescoreResumeFitForUserMaster(supabase, user.id).catch((err) => {
       console.error("resume-fit rescore after first upload failed:", err);
-    }
+    });
   }
 
   revalidatePath("/settings");
@@ -218,12 +217,22 @@ export async function setMainResumeAction(
     };
   }
 
-  // Apps without an explicit attach now resolve to the new main. Rescore.
-  try {
-    await rescoreResumeFitForUserMaster(supabase, user.id);
-  } catch (err) {
+  // Rescore the apps that resolve to the new main.
+  //
+  // FIRE-AND-FORGET, not awaited. The rescore loops over every scored app
+  // (~58 rows) and each `scoreResumeFit` call takes ~30s of SDK retry-
+  // backoff when Groq TPD is exhausted. Awaiting it would blow Vercel's
+  // 60s function cap and leave the client's Set-as-main button stuck in
+  // "Setting…" forever (server never returns cleanly). Individual apps
+  // that 429 mid-flight keep their existing scores per
+  // `runScoreAndPersist`'s `llm_error` skip. Users can also click "Rescore
+  // N unscored" on /inbox once TPD refills.
+  //
+  // Diagnosed 2026-08-13 from Vercel logs — TPD at 99.6% + 58 rows
+  // synchronous = 29 min sequential burn. Same shape as the cron 504.
+  rescoreResumeFitForUserMaster(supabase, user.id).catch((err) => {
     console.error("resume-fit rescore after main swap failed:", err);
-  }
+  });
 
   revalidatePath("/settings");
   revalidatePath("/inbox");
