@@ -132,18 +132,31 @@ export async function scrapeUrl(
     return emptyResult(url);
   }
 
+  // TEMP: per-layer timing to diagnose the 2026-08-13 cron 504 (TikTok took
+  // 49s — which layer is stalling?). Remove once diagnosis lands.
+  const scrapeT0 = Date.now();
+  const layerLog = (msg: string) =>
+    console.log(`[scrape ${Math.round((Date.now() - scrapeT0) / 100) / 10}s ${new URL(url).hostname}] ${msg}`);
+
   const board = identifyBoard(url);
+  layerLog(`board=${board.kind}`);
   const evidence: EvidenceLayer[] = [];
 
   // Layer 1: board-specific API
   if (board.kind === "greenhouse" && board.company && board.jobId) {
+    const t = Date.now();
     const ev = await fetchGreenhouseJob(board.company, board.jobId);
+    layerLog(`greenhouse-api ${Date.now() - t}ms hit=${!!ev}`);
     if (ev) evidence.push(ev);
   } else if (board.kind === "lever" && board.company && board.jobId) {
+    const t = Date.now();
     const ev = await fetchLeverPosting(board.company, board.jobId);
+    layerLog(`lever-api ${Date.now() - t}ms hit=${!!ev}`);
     if (ev) evidence.push(ev);
   } else if (board.kind === "ashby" && board.company && board.jobId) {
+    const t = Date.now();
     const ev = await fetchAshbyJob(board.company, board.jobId);
+    layerLog(`ashby-api ${Date.now() - t}ms hit=${!!ev}`);
     if (ev) evidence.push(ev);
   } else if (
     board.kind === "workday" &&
@@ -152,17 +165,21 @@ export async function scrapeUrl(
     board.extras?.host &&
     board.extras?.site
   ) {
+    const t = Date.now();
     const ev = await fetchWorkdayJob(
       board.extras.host,
       board.company,
       board.extras.site,
       board.jobId
     );
+    layerLog(`workday-api ${Date.now() - t}ms hit=${!!ev}`);
     if (ev) evidence.push(ev);
   }
 
   // Layer 2: direct fetch + JSON-LD
+  const t2 = Date.now();
   const directEv = await directFetchAndJsonLd(url);
+  layerLog(`direct+jsonld ${Date.now() - t2}ms hit=${!!directEv} body=${directEv?.jd_body.length ?? 0}`);
   if (directEv) evidence.push(directEv);
 
   // Layer 3: r.jina.ai reader fallback (if no substantial body yet)
@@ -170,8 +187,12 @@ export async function scrapeUrl(
     (e) => e.jd_body.length >= THIN_BODY_THRESHOLD
   );
   if (!haveSubstantialBody) {
+    const t3 = Date.now();
     const jinaEv = await fetchViaJinaReader(url);
+    layerLog(`jina-reader ${Date.now() - t3}ms hit=${!!jinaEv} body=${jinaEv?.jd_body.length ?? 0}`);
     if (jinaEv) evidence.push(jinaEv);
+  } else {
+    layerLog("jina-reader skipped (have body)");
   }
 
   // Layer 4: Cloudflare Browser Rendering (if configured + still thin)
@@ -179,14 +200,19 @@ export async function scrapeUrl(
     (e) => e.jd_body.length >= THIN_BODY_THRESHOLD
   );
   if (!haveSubstantialBodyAfterJina) {
+    const t4 = Date.now();
     const cfEv = await fetchViaCloudflareBrowser(url);
+    layerLog(`cf-browser ${Date.now() - t4}ms hit=${!!cfEv} body=${cfEv?.jd_body.length ?? 0}`);
     if (cfEv) evidence.push(cfEv);
+  } else {
+    layerLog("cf-browser skipped (have body)");
   }
 
   const mergedHints = mergeEvidence(evidence);
   const bestBody = pickBestBody(evidence, userPastedJd);
   const compensationContext = extractCompensationContext(evidence, userPastedJd);
 
+  const t5 = Date.now();
   const extracted = await extractJobFromEvidence({
     url,
     htmlExcerpt: mergedHints.htmlExcerpt,
@@ -200,6 +226,7 @@ export async function scrapeUrl(
     userPastedJdBody: userPastedJd,
     compensationContext,
   });
+  layerLog(`llm-extract ${Date.now() - t5}ms rate_limited=${extracted.rate_limited}`);
 
   // Fallback fill: when LLM left a field blank but evidence had it
   const locations: ExtractedJob["locations"] =
