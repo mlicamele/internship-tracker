@@ -144,6 +144,14 @@ export async function deleteResumeAction(formData: FormData) {
   const target = versions.find((r) => r.id === id);
   if (!target) fail("Resume not found");
 
+  // Invariant: user must always have at least one main resume — scoring
+  // relies on it. Block deleting the last one; user must upload a
+  // replacement first. (Non-last main can still be deleted after another
+  // resume is promoted to main via the next check.)
+  if (versions.length === 1) {
+    fail("Upload a replacement before deleting your only resume");
+  }
+
   if (target.is_main === true && versions.length > 1) {
     fail("Set another resume as main before deleting this one");
   }

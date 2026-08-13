@@ -55,42 +55,59 @@ export function ResumeSection({
         </p>
       ) : (
         <ul className="space-y-2">
-          {versions.map((v) => (
-            <li
-              key={v.id}
-              className="flex items-center justify-between gap-3 rounded-md border border-border bg-card p-3"
-            >
-              <div className="min-w-0 flex-1 space-y-0.5">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-medium">{v.label}</span>
-                  {v.is_main && (
-                    <span className="rounded-full border border-primary bg-primary px-2 py-0.5 text-[0.65rem] font-medium text-primary-foreground">
-                      Main
-                    </span>
+          {versions.map((v) => {
+            // Block deleting the last-remaining resume — scoring relies on
+            // having a main resume, so we require an upload before delete
+            // when there's only one row. Server-side action re-checks the
+            // invariant so the button isn't a load-bearing UI guard.
+            const isOnlyResume = versions.length === 1;
+            return (
+              <li
+                key={v.id}
+                className="flex items-center justify-between gap-3 rounded-md border border-border bg-card p-3"
+              >
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="flex items-center gap-2">
+                    <span className="truncate text-sm font-medium">{v.label}</span>
+                    {v.is_main && (
+                      <span className="rounded-full border border-primary bg-primary px-2 py-0.5 text-[0.65rem] font-medium text-primary-foreground">
+                        Main
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatBytes(v.file_size_bytes)} · {formatDate(v.uploaded_at)}
+                  </div>
+                </div>
+                <div className="flex items-center gap-1">
+                  {!v.is_main && (
+                    <form action={setMainResumeAction}>
+                      <input type="hidden" name="id" value={v.id} />
+                      <Button type="submit" size="sm" variant="outline">
+                        Set as main
+                      </Button>
+                    </form>
                   )}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {formatBytes(v.file_size_bytes)} · {formatDate(v.uploaded_at)}
-                </div>
-              </div>
-              <div className="flex items-center gap-1">
-                {!v.is_main && (
-                  <form action={setMainResumeAction}>
+                  <form action={deleteResumeAction}>
                     <input type="hidden" name="id" value={v.id} />
-                    <Button type="submit" size="sm" variant="outline">
-                      Set as main
+                    <Button
+                      type="submit"
+                      size="sm"
+                      variant="ghost"
+                      disabled={isOnlyResume}
+                      title={
+                        isOnlyResume
+                          ? "Upload a replacement before deleting your only resume"
+                          : undefined
+                      }
+                    >
+                      Delete
                     </Button>
                   </form>
-                )}
-                <form action={deleteResumeAction}>
-                  <input type="hidden" name="id" value={v.id} />
-                  <Button type="submit" size="sm" variant="ghost">
-                    Delete
-                  </Button>
-                </form>
-              </div>
-            </li>
-          ))}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
