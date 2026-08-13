@@ -23,7 +23,26 @@ function fail(msg: string): never {
   redirect(`/settings?resume_error=${encodeURIComponent(msg)}`);
 }
 
-export async function uploadResumeAction(formData: FormData) {
+/** Result of the upload action — consumed by `useActionState` in the client form. */
+export type UploadResumeResult =
+  | { ok: true; label: string }
+  | { ok: false; error: string };
+
+/**
+ * Upload + parse + persist a resume. Signature matches `useActionState`'s
+ * `(prevState, formData) => Promise<newState>` shape so the client form can
+ * show a spinner during extraction and a ✓ confirmation on success without
+ * a full-page reload. `revalidatePath("/settings")` still fires so the
+ * server-rendered resume list updates.
+ *
+ * Errors are returned as `{ok: false, error}` instead of throwing/redirecting
+ * so the form can surface them inline. Only the unauthenticated case still
+ * redirects (to /login) — that's a navigation, not a form-level error.
+ */
+export async function uploadResumeAction(
+  _prev: UploadResumeResult,
+  formData: FormData
+): Promise<UploadResumeResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -33,14 +52,18 @@ export async function uploadResumeAction(formData: FormData) {
   const file = formData.get("file");
   const labelRaw = formData.get("label");
 
-  if (!(file instanceof File) || file.size === 0) fail("Pick a PDF to upload");
+  if (!(file instanceof File) || file.size === 0) {
+    return { ok: false, error: "Pick a PDF to upload" };
+  }
 
   const isPdf =
     file.type === "application/pdf" ||
     file.name.toLowerCase().endsWith(".pdf");
-  if (!isPdf) fail("Only PDFs are supported");
+  if (!isPdf) return { ok: false, error: "Only PDFs are supported" };
 
-  if (file.size > MAX_BYTES) fail("Resume must be under 10MB");
+  if (file.size > MAX_BYTES) {
+    return { ok: false, error: "Resume must be under 10MB" };
+  }
 
   const labelInput = typeof labelRaw === "string" ? labelRaw.trim() : "";
   const derived = file.name.replace(/\.pdf$/i, "");
@@ -53,7 +76,10 @@ export async function uploadResumeAction(formData: FormData) {
     const parsed = await parseResumePdf(bytes);
     text = parsed.text;
   } catch (err) {
-    fail(err instanceof Error ? err.message : "Could not parse PDF");
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Could not parse PDF",
+    };
   }
 
   const versionId = crypto.randomUUID();
@@ -62,7 +88,7 @@ export async function uploadResumeAction(formData: FormData) {
   try {
     await uploadResumeToStorage(supabase, path, bytes);
   } catch {
-    fail("Upload failed");
+    return { ok: false, error: "Upload failed" };
   }
 
   const existing = await listResumeVersions(supabase, user.id);
@@ -83,12 +109,15 @@ export async function uploadResumeAction(formData: FormData) {
     try {
       await deleteResumeFromStorage(supabase, path);
     } catch {}
-    fail(err instanceof Error ? err.message : "Could not save resume");
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Could not save resume",
+    };
   }
 
   // First-ever upload auto-promotes to main. Any application without an
   // explicit resume_version_id now resolves to this new resume, so score.
-  // Non-throwing — settings save should still succeed on Groq errors.
+  // Non-throwing — the upload itself already succeeded on Groq errors.
   if (isFirst) {
     try {
       await rescoreResumeFitForUserMaster(supabase, user.id);
@@ -98,7 +127,7 @@ export async function uploadResumeAction(formData: FormData) {
   }
 
   revalidatePath("/settings");
-  redirect("/settings?resume_saved=1");
+  return { ok: true, label };
 }
 
 export async function deleteResumeAction(formData: FormData) {

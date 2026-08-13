@@ -1,11 +1,10 @@
 import type { ResumeVersion } from "@/lib/db/types";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import {
-  uploadResumeAction,
   deleteResumeAction,
   setMainResumeAction,
 } from "../resume-actions";
+import { ResumeUploadForm } from "./resume-upload-form";
 
 function formatBytes(n: number | null): string {
   if (n === null) return "—";
@@ -23,13 +22,14 @@ function formatDate(iso: string): string {
 
 export function ResumeSection({
   versions,
-  error,
-  saved,
   deleted,
 }: {
   versions: ResumeVersion[];
-  error?: string;
-  saved?: string;
+  /**
+   * Delete banner still uses URL-param signalling because deleteResumeAction
+   * still redirects. Not migrated to useActionState in this pass — matches
+   * the smaller scope of the upload UX task.
+   */
   deleted?: string;
 }) {
   return (
@@ -41,32 +41,13 @@ export function ResumeSection({
         </p>
       </div>
 
-      {saved === "1" && (
-        <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
-          Resume saved.
-        </div>
-      )}
       {deleted === "1" && (
         <div className="rounded-md border border-border bg-card p-3 text-sm text-muted-foreground">
           Resume deleted.
         </div>
       )}
-      {error && (
-        <p className="text-sm text-destructive" role="alert">
-          Resume: {error}
-        </p>
-      )}
 
-      <form action={uploadResumeAction} className="space-y-2">
-        <Input type="file" name="file" accept="application/pdf" required />
-        <Input
-          type="text"
-          name="label"
-          placeholder="Label (optional — defaults to filename)"
-          maxLength={80}
-        />
-        <Button type="submit">Upload</Button>
-      </form>
+      <ResumeUploadForm />
 
       {versions.length === 0 ? (
         <p className="text-xs text-muted-foreground">

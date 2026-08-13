@@ -12,13 +12,13 @@ export default async function SettingsPage({
   searchParams: Promise<{
     error?: string;
     saved?: string;
-    resume_error?: string;
-    resume_saved?: string;
+    // resume_error + resume_saved removed — upload form now handles both
+    // inline via useActionState. resume_deleted remains: deleteResumeAction
+    // still redirects.
     resume_deleted?: string;
   }>;
 }) {
-  const { error, saved, resume_error, resume_saved, resume_deleted } =
-    await searchParams;
+  const { error, saved, resume_deleted } = await searchParams;
 
   const supabase = await createClient();
   const {
@@ -53,12 +53,7 @@ export default async function SettingsPage({
       />
 
       <div className="pt-2">
-        <ResumeSection
-          versions={resumeVersions}
-          error={resume_error}
-          saved={resume_saved}
-          deleted={resume_deleted}
-        />
+        <ResumeSection versions={resumeVersions} deleted={resume_deleted} />
       </div>
     </div>
   );
