@@ -65,7 +65,18 @@ export async function POST(req: NextRequest) {
   try {
     const summary = await ingestSimplifyListings(supabase, userId, {
       maxNewExtractions: MAX_NEW_PER_RUN,
-      concurrency: 3,
+      // Concurrency=1, not 3. Rationale: `serializeGroqCall` already
+      // serializes LLM calls process-wide, so the pre-LLM "parallel"
+      // scraping (direct fetch, JSON-LD) is the only phase that ever ran
+      // truly concurrently. Meanwhile, each extraction call consumes
+      // ~10K tokens (see MAX_HTML_CHARS + MAX_BODY_CHARS in extract-job.ts)
+      // and `GROQ_LIMITS.tokensPerMinute` is 12K. Three back-to-back
+      // 10K-token calls oversubscribe the TPM budget by ~2.5×, triggering
+      // 429s that the SDK burns ~30s each on retry-backoff. Diagnosed
+      // 2026-08-13 after the cron 504'd on 3 concurrent TikTok
+      // extractions each taking 30s. At concurrency=1 the same 3 rows
+      // run in ~24s total (3 × ~8s real LLM speed) instead of 90s.
+      concurrency: 1,
       wallClockBudgetMs: WALL_CLOCK_BUDGET_MS,
       // Surface ingest's internal progress markers into the Vercel Functions
       // log so we can see which phase stalls when the function times out.
