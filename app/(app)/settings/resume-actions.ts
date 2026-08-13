@@ -130,7 +130,13 @@ export async function uploadResumeAction(
   return { ok: true, label };
 }
 
-export async function deleteResumeAction(formData: FormData) {
+/** Result shape shared by delete + set-main actions (useActionState). */
+export type RowActionResult = { ok: true } | { ok: false; error: string };
+
+export async function deleteResumeAction(
+  _prev: RowActionResult,
+  formData: FormData
+): Promise<RowActionResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -138,11 +144,11 @@ export async function deleteResumeAction(formData: FormData) {
   if (!user) redirect("/login");
 
   const id = formData.get("id");
-  if (typeof id !== "string" || !id) fail("Missing id");
+  if (typeof id !== "string" || !id) return { ok: false, error: "Missing id" };
 
   const versions = await listResumeVersions(supabase, user.id);
   const target = versions.find((r) => r.id === id);
-  if (!target) fail("Resume not found");
+  if (!target) return { ok: false, error: "Resume not found" };
 
   // Invariant: user must always have at least one main resume — scoring
   // relies on it. Only block deletion when this is the LAST resume; when
@@ -150,7 +156,10 @@ export async function deleteResumeAction(formData: FormData) {
   // recently uploaded remaining resume so the user never has to think
   // about it.
   if (versions.length === 1) {
-    fail("Upload a replacement before deleting your only resume");
+    return {
+      ok: false,
+      error: "Upload a replacement before deleting your only resume",
+    };
   }
 
   if (target.is_main === true) {
@@ -159,15 +168,19 @@ export async function deleteResumeAction(formData: FormData) {
     // main so we never have zero rows with is_main=TRUE.
     const successor = versions.find((r) => r.id !== id);
     if (!successor) {
-      // Defensive — versions.length > 1 was true at this point but just in
-      // case (e.g., race with another delete), refuse rather than corrupt.
-      fail("Could not find another resume to promote as main");
+      return {
+        ok: false,
+        error: "Could not find another resume to promote as main",
+      };
     }
     try {
       await setMainResumeVersion(supabase, user.id, successor.id);
     } catch (err) {
       console.error("auto-promote before delete-main failed:", err);
-      fail("Could not promote a replacement main; delete aborted");
+      return {
+        ok: false,
+        error: "Could not promote a replacement main; delete aborted",
+      };
     }
   }
 
@@ -180,10 +193,13 @@ export async function deleteResumeAction(formData: FormData) {
   }
 
   revalidatePath("/settings");
-  redirect("/settings?resume_deleted=1");
+  return { ok: true };
 }
 
-export async function setMainResumeAction(formData: FormData) {
+export async function setMainResumeAction(
+  _prev: RowActionResult,
+  formData: FormData
+): Promise<RowActionResult> {
   const supabase = await createClient();
   const {
     data: { user },
@@ -191,9 +207,16 @@ export async function setMainResumeAction(formData: FormData) {
   if (!user) redirect("/login");
 
   const id = formData.get("id");
-  if (typeof id !== "string" || !id) fail("Missing id");
+  if (typeof id !== "string" || !id) return { ok: false, error: "Missing id" };
 
-  await setMainResumeVersion(supabase, user.id, id);
+  try {
+    await setMainResumeVersion(supabase, user.id, id);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Could not set main resume",
+    };
+  }
 
   // Apps without an explicit attach now resolve to the new main. Rescore.
   try {
@@ -204,5 +227,5 @@ export async function setMainResumeAction(formData: FormData) {
 
   revalidatePath("/settings");
   revalidatePath("/inbox");
-  redirect("/settings?resume_saved=1");
+  return { ok: true };
 }
