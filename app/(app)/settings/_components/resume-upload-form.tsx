@@ -59,7 +59,10 @@ export function ResumeUploadForm() {
       )}
       <Button
         type="submit"
-        disabled={pending || (!hasFile && !justUploaded)}
+        // Button requires a file to enable — the emerald ✓ flash is purely
+        // visual and doesn't relax that gate. If the user picks a new file
+        // during the 1.5s success window we let them submit immediately.
+        disabled={pending || !hasFile}
         aria-live="polite"
         className={cn(
           "transition-colors",
