@@ -25,6 +25,22 @@ export function SettingsForm({
   profile: Profile;
   availableTags: string[];
 }) {
+  // Controlled state for every input so the form doesn't trip base-ui's
+  // "changing default value on uncontrolled FieldControl" warning when the
+  // `profile` prop updates after a `revalidatePath('/settings')` post-save.
+  // Uncontrolled `defaultValue` would re-initialize on every profile change;
+  // controlled `value` just tracks state and ignores the incoming prop.
+  const [school, setSchool] = useState(profile.school ?? "");
+  const [gradYear, setGradYear] = useState<string>(
+    profile.grad_year != null ? String(profile.grad_year) : ""
+  );
+  const [homeAddress, setHomeAddress] = useState(profile.home_address ?? "");
+  const [localRadiusMiles, setLocalRadiusMiles] = useState<string>(
+    String(profile.local_radius_miles)
+  );
+  const [relocationTolerance, setRelocationTolerance] = useState<string>(
+    profile.relocation_tolerance
+  );
   const [selected, setSelected] = useState<string[]>(profile.interest_tags ?? []);
   const [state, formAction, pending] = useActionState(
     saveSettings,
@@ -69,7 +85,8 @@ export function SettingsForm({
           <Input
             id="school"
             name="school"
-            defaultValue={profile.school ?? ""}
+            value={school}
+            onChange={(e) => setSchool(e.target.value)}
             required
           />
         </div>
@@ -78,7 +95,8 @@ export function SettingsForm({
           <select
             id="grad_year"
             name="grad_year"
-            defaultValue={profile.grad_year ?? ""}
+            value={gradYear}
+            onChange={(e) => setGradYear(e.target.value)}
             required
             className={SELECT_CLS}
           >
@@ -102,7 +120,8 @@ export function SettingsForm({
           <Input
             id="home_address"
             name="home_address"
-            defaultValue={profile.home_address ?? ""}
+            value={homeAddress}
+            onChange={(e) => setHomeAddress(e.target.value)}
             required
           />
         </div>
@@ -117,7 +136,8 @@ export function SettingsForm({
             min={5}
             max={150}
             step={5}
-            defaultValue={profile.local_radius_miles}
+            value={localRadiusMiles}
+            onChange={(e) => setLocalRadiusMiles(e.target.value)}
             required
           />
           <p className="text-xs text-muted-foreground">
@@ -130,7 +150,8 @@ export function SettingsForm({
           <select
             id="relocation_tolerance"
             name="relocation_tolerance"
-            defaultValue={profile.relocation_tolerance}
+            value={relocationTolerance}
+            onChange={(e) => setRelocationTolerance(e.target.value)}
             required
             className={SELECT_CLS}
           >

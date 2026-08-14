@@ -181,13 +181,11 @@ async function saveSettingsInner(formData: FormData): Promise<SaveSettingsResult
     console.error("recomputeFitScoresForUser failed:", err);
   }
 
-  // Deliberately NOT revalidating /settings — the client form already
-  // holds the values the user just typed; refetching the RSC would send
-  // a fresh `profile` prop back through the form, which re-renders every
-  // uncontrolled <Input defaultValue={...}> and triggers a base-ui
-  // "changing default value on uncontrolled FieldControl" warning. The
-  // other three routes (inbox/pipeline/archive) still need revalidation
-  // because fit_score / recompute changes affect what they display.
+  // SettingsForm's inputs are now controlled (state-driven `value`, not
+  // uncontrolled `defaultValue`), so revalidating /settings is safe —
+  // fresh `profile` prop doesn't re-initialize any input or trip base-ui's
+  // "changing default value on uncontrolled FieldControl" warning.
+  revalidatePath("/settings");
   revalidatePath("/inbox");
   revalidatePath("/pipeline");
   revalidatePath("/archive");
