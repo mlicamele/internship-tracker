@@ -713,6 +713,14 @@ function isJsonValidationError(err: unknown): boolean {
  * Any prompt edit should be verified against the same real-data sample
  * before merging — per the "invented-case verification is a trap" lesson.
  */
+// Estimated tokens Groq charges for a json_validate_failed 400 — the model
+// processed the input and generated (up to max_tokens) output before failing
+// post-generation validation. The 400 body doesn't include usage, so we
+// approximate: ~1150 system prompt + ~50 user + ~200 max output = ~1400.
+// Used to keep recordTokenUsage's 80%-TPD warning honest under retry-heavy
+// batches (otherwise the tracker would underreport server-side burn).
+const CLASSIFY_FAILED_ATTEMPT_TOKENS_EST = 1400;
+
 export async function classifyRoleTags(
   input: ClassifyRoleTagsInput
 ): Promise<string[]> {
@@ -721,10 +729,20 @@ export async function classifyRoleTags(
   parts.push(`Title: ${input.title}`);
   const user = parts.join("\n");
 
+  // Fast-fail if a recent Groq call was refused for rate-limit reasons.
+  // Early check for callers arriving fresh (not queued behind another call).
+  // See extractJobFromEvidence for the dual-checkpoint rationale.
+  if (shouldFastFailForRateLimit()) return [];
+
   for (let attempt = 1; attempt <= CLASSIFY_MAX_ATTEMPTS; attempt++) {
     try {
-      const completion = await serializeGroqCall(() =>
-        client().chat.completions.create({
+      const completion = await serializeGroqCall(async () => {
+        // Post-lock recheck: if a sibling call flipped the cooldown flag
+        // while we were queued in the serializer, skip the actual Groq call.
+        if (shouldFastFailForRateLimit()) {
+          throw new RateLimitFastFailError();
+        }
+        return client().chat.completions.create({
           model: MODEL_FOR.classification,
           messages: [
             { role: "system", content: TAGS_SYSTEM_PROMPT },
@@ -733,8 +751,8 @@ export async function classifyRoleTags(
           temperature: 0,
           max_tokens: 200,
           response_format: { type: "json_object" },
-        })
-      );
+        });
+      });
       if (completion.usage?.total_tokens) {
         recordTokenUsage(
           MODEL_FOR.classification,
@@ -750,13 +768,24 @@ export async function classifyRoleTags(
       return parseTags(parsed.tags);
     } catch (err) {
       if (isRateLimitError(err)) {
+        // Mark the cooldown window so queued siblings + future arrivals skip
+        // the SDK retry-backoff. Matches extractJobFromEvidence's pattern.
+        noteRateLimit();
         console.warn(
           `[groq-rate-limit] classifyRoleTags: ${formatRateLimit(parseRateLimit(err))}`
         );
         return [];
       }
-      if (isJsonValidationError(err) && attempt < CLASSIFY_MAX_ATTEMPTS) {
-        continue;
+      if (isJsonValidationError(err)) {
+        // Groq charged tokens server-side for this failed attempt even though
+        // the 400 response body doesn't include a usage object. Estimate to
+        // keep the local TPD tracker honest under retry-heavy runs.
+        recordTokenUsage(
+          MODEL_FOR.classification,
+          CLASSIFY_FAILED_ATTEMPT_TOKENS_EST,
+          MODEL_TPD[MODEL_FOR.classification]
+        );
+        if (attempt < CLASSIFY_MAX_ATTEMPTS) continue;
       }
       return [];
     }
