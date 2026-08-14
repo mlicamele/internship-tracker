@@ -33,9 +33,12 @@ import { MODEL_FOR } from "@/lib/llm/model";
 import {
   formatRateLimit,
   isRateLimitError,
+  noteRateLimit,
   parseRateLimit,
+  RateLimitFastFailError,
   recordTokenUsage,
   serializeGroqCall,
+  shouldFastFailForRateLimit,
 } from "@/lib/llm/rate-limiter";
 import { MODEL_TPD } from "@/lib/llm/limits";
 
@@ -314,9 +317,30 @@ export async function scoreResumeFit(
 
   const user = buildUserMessage(input, text);
 
+  // Fast-fail if a recent Groq call was refused for rate-limit reasons.
+  // Early check for callers arriving fresh (not queued behind another call).
+  // Load-bearing under the batch path in rescoreResumeFitBatch: 58 sequential
+  // scoreResumeFit calls at ~30s each of SDK retry-backoff = 29 minutes,
+  // well past Vercel's 60s function cap. Fast-fail short-circuits all
+  // subsequent calls in the batch to microseconds after the first 429.
+  // Matches extractJobFromEvidence's pattern.
+  if (shouldFastFailForRateLimit()) {
+    return { score: null, details: null, skippedReason: "llm_error" };
+  }
+
   try {
-    const completion = await serializeGroqCall(() =>
-      client().chat.completions.create({
+    // Post-lock recheck: if a sibling call flipped the cooldown flag while
+    // we were queued in serializeGroqCall's single-slot lock, skip the
+    // actual Groq call. Without this, three concurrent callers all pass the
+    // early check simultaneously at t≈0 and each burns ~30s of SDK
+    // retry-backoff before the outer catch reacts. Throwing
+    // RateLimitFastFailError inside the callback routes through the same
+    // catch block as a real 429.
+    const completion = await serializeGroqCall(async () => {
+      if (shouldFastFailForRateLimit()) {
+        throw new RateLimitFastFailError();
+      }
+      return client().chat.completions.create({
         model: MODEL_FOR.scoring,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
@@ -325,8 +349,8 @@ export async function scoreResumeFit(
         temperature: 0,
         max_tokens: 900,
         response_format: { type: "json_object" },
-      })
-    );
+      });
+    });
 
     if (completion.usage?.total_tokens) {
       recordTokenUsage(
@@ -356,6 +380,9 @@ export async function scoreResumeFit(
     };
   } catch (err) {
     if (isRateLimitError(err)) {
+      // Mark the cooldown window so queued siblings + future arrivals skip
+      // the SDK retry-backoff. Matches extractJobFromEvidence's pattern.
+      noteRateLimit();
       console.warn(
         `[groq-rate-limit] scoreResumeFit: ${formatRateLimit(parseRateLimit(err))}`
       );
