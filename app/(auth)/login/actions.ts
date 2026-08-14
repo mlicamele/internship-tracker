@@ -13,7 +13,7 @@ export async function sendMagicLink(formData: FormData) {
   const supabase = await createClient();
   const headerList = await headers();
   const origin =
-    headerList.get("origin") ?? headerList.get("referer")?.split("/").slice(0, 3).join("/") ?? "http://localhost:3000";
+    headerList.get("origin") ?? headerList.get("referer")?.split("/").slice(0, 3).join("/") ?? "http://localhost:3001";
 
   const { error } = await supabase.auth.signInWithOtp({
     email,

@@ -57,7 +57,7 @@ function baseUrl(req: NextRequest): string {
   const envUrl = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
   if (envUrl) return envUrl;
   const proto = req.headers.get("x-forwarded-proto") ?? "https";
-  const host = req.headers.get("host") ?? "localhost:3000";
+  const host = req.headers.get("host") ?? "localhost:3001";
   return `${proto}://${host}`;
 }
 
