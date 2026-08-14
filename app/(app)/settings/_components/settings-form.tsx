@@ -24,8 +24,6 @@ export function SettingsForm({
 }: {
   profile: Profile;
   availableTags: string[];
-  /** @deprecated no longer used — form now tracks its own state via useActionState. */
-  error?: string;
 }) {
   const [selected, setSelected] = useState<string[]>(profile.interest_tags ?? []);
   const [state, formAction, pending] = useActionState(

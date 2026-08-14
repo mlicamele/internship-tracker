@@ -10,13 +10,12 @@ export default async function SettingsPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    error?: string;
     saved?: string;
     // All resume actions now handled inline via useActionState in their
     // respective client components — no more URL-param signalling.
   }>;
 }) {
-  const { error, saved } = await searchParams;
+  const { saved } = await searchParams;
 
   const supabase = await createClient();
   const {
@@ -47,7 +46,6 @@ export default async function SettingsPage({
       <SettingsForm
         profile={profile}
         availableTags={[...INTEREST_TAGS]}
-        error={error}
       />
 
       <div className="pt-2">
