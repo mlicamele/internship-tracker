@@ -6,17 +6,7 @@ import { INTEREST_TAGS } from "@/lib/taxonomy";
 import { SettingsForm } from "./_components/settings-form";
 import { ResumeSection } from "./_components/resume-section";
 
-export default async function SettingsPage({
-  searchParams,
-}: {
-  searchParams: Promise<{
-    saved?: string;
-    // All resume actions now handled inline via useActionState in their
-    // respective client components — no more URL-param signalling.
-  }>;
-}) {
-  const { saved } = await searchParams;
-
+export default async function SettingsPage() {
   const supabase = await createClient();
   const {
     data: { user },
@@ -36,12 +26,6 @@ export default async function SettingsPage({
           Edit your profile. Updating these recomputes fit scores on your applications.
         </p>
       </header>
-
-      {saved === "1" && (
-        <div className="rounded-md border border-border bg-card p-3 text-sm">
-          Saved.
-        </div>
-      )}
 
       <SettingsForm
         profile={profile}

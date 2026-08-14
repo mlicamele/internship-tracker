@@ -19,10 +19,6 @@ import { rescoreResumeFitForUserMaster } from "@/lib/db/resume-fit";
 
 const MAX_BYTES = 10 * 1024 * 1024;
 
-function fail(msg: string): never {
-  redirect(`/settings?resume_error=${encodeURIComponent(msg)}`);
-}
-
 /** Result of the upload action — consumed by `useActionState` in the client form. */
 export type UploadResumeResult =
   | { ok: true; label: string }
